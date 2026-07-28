@@ -12,12 +12,12 @@
 
 | STT | MSSV | Họ và tên | Vai trò |
 |---:|---|---|---|
-| 1 |  | Lê Văn Nhựt | TODO |
-| 2 | TODO | Phạm Anh Tuấn | TODO |
-| 3 | TODO | Nguyễn Tấn Hiệp | TODO |
-| 4 | TODO | Huỳnh Việt Tiến | TODO |
-| 5 | TODO | Huỳnh Anh Kiệt | TODO |
-| 6 | TODO | Võ Nhật Linh | TODO |
+| 1 | 095205005482| Lê Văn Nhựt | TODO |
+| 2 | 075205019210 | Phạm Anh Tuấn | TODO |
+| 3 | 087205010642 | Nguyễn Tấn Hiệp | TODO |
+| 4 | 054206006612| Huỳnh Việt Tiến | TODO |
+| 5 | 051206006174 | Huỳnh Anh Kiệt | TODO |
+| 6 | 045205006605 | Võ Nhật Linh | TODO |
 
 ## Giới thiệu
 
