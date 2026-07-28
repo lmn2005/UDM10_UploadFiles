@@ -1,0 +1,9 @@
+<Window x:Class="UDM10.Client.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="UDM10 - Client Upload" Height="450" Width="800">
+    <Grid>
+        <TextBlock Text="GUI Client - TODO: Implement drag and drop and upload logic." 
+                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Grid>
+</Window>

@@ -427,3 +427,21 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Custom rules for UDM10
+TestResults/
+*.tmp
+*.temp
+*.part
+.DS_Store
+
+Code/**/Uploads/
+Code/**/ReceivedFiles/
+Code/**/TempUploads/
+Code/**/ServerData/
+
+**/appsettings.Local.json
+**/.env
+
+# Allow specific logs
+!Extra/TestLogs/**/*.log
