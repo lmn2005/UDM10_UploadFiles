@@ -12,12 +12,12 @@
 
 | STT | MSSV | Họ và tên | Vai trò |
 |---:|---|---|---|
-| 1 | TODO | TODO | TODO |
-| 2 | TODO | TODO | TODO |
-| 3 | TODO | TODO | TODO |
-| 4 | TODO | TODO | TODO |
-| 5 | TODO | TODO | TODO |
-| 6 | TODO | TODO | TODO |
+| 1 |  | Lê Văn Nhựt | TODO |
+| 2 | TODO | Phạm Anh Tuấn | TODO |
+| 3 | TODO | Nguyễn Tấn Hiệp | TODO |
+| 4 | TODO | Huỳnh Việt Tiến | TODO |
+| 5 | TODO | Huỳnh Anh Kiệt | TODO |
+| 6 | TODO | Võ Nhật Linh | TODO |
 
 ## Giới thiệu
 
