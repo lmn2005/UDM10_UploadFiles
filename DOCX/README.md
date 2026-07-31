@@ -1,6 +1,6 @@
 # Tài liệu báo cáo
 
-Đây là nơi chứa báo cáo Word.
-- Định dạng .doc hoặc .docx.
-- Báo cáo cuối kỳ tối đa 15 trang theo yêu cầu.
-- Có thể chứa tài liệu thiết kế và mô tả protocol.
+Thư mục này dùng để lưu báo cáo Word của đề tài.
+
+- Định dạng: `.doc` hoặc `.docx`.
+- Có thể bổ sung tài liệu thiết kế, mô tả protocol và phân công công việc.
