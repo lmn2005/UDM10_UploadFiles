@@ -1,4 +1,5 @@
 # Slide thuyết trình
 
-Đây là nơi chứa slide thuyết trình.
-- Định dạng .ppt hoặc .pptx.
+Thư mục này dùng để lưu slide thuyết trình của đề tài.
+
+- Định dạng: `.ppt` hoặc `.pptx`.
