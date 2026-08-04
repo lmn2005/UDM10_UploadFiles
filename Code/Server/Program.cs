@@ -12,11 +12,26 @@ namespace UDM10.Server
             var testLogger = new ServerLogger("Extra/TestLogs/server.log");
             var testStorage = new FileStorageService("Extra/TestData/Uploads", testLogger);
 
-            byte[] fakeData = System.Text.Encoding.UTF8.GetBytes("Xin chao, day la file test!");
-            using (var testStream = new MemoryStream(fakeData))
+            string sampleFolder = "Extra/TestData/SampleFiles";
+            string[] filePaths = Directory.GetFiles(sampleFolder);
+
+            foreach (string filePath in filePaths)
             {
-                string savedPath = await testStorage.SaveFileAsync("hello.txt", fakeData.Length, testStream);
-                Console.WriteLine($"Đã lưu file tại: {savedPath}");
+                string fileName = Path.GetFileName(filePath);
+                long fileSize = new FileInfo(filePath).Length;
+
+                using (var fileStream = File.OpenRead(filePath))
+                {
+                    try
+                    {
+                        string savedPath = await testStorage.SaveFileAsync(fileName, fileSize, fileStream);
+                        Console.WriteLine($"OK: {fileName} -> {savedPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"LỖI với {fileName}: {ex.Message}");
+                    }
+                }
             }
             // ===== HẾT TEST TẠM =====
         }
