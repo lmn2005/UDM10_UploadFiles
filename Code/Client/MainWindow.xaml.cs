@@ -1,50 +1,42 @@
-using Microsoft.Win32;
-using System.IO;
+using System.Collections.ObjectModel;
 using System.Windows;
-using UDM10.Client.Services;
+using Microsoft.Win32;
 
 namespace UDM10.Client
 {
     public partial class MainWindow : Window
     {
-        private readonly UploadClientService _uploadClientService = new();
-        private string? _selectedFilePath;
+        public ObservableCollection<UploadItemViewModel> FileList { get; set; } = new();
 
         public MainWindow()
         {
             InitializeComponent();
+            FileListView.ItemsSource = FileList;
         }
 
-        private void ChooseFileButton_Click(object sender, RoutedEventArgs e)
+        private void DropArea_DragEnter(object sender, DragEventArgs e)
         {
-            OpenFileDialog dialog = new();
+            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
+                ? DragDropEffects.Copy : DragDropEffects.None;
+        }
 
+        private void DropArea_Drop(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetData(DataFormats.FileDrop) is string[] paths)
+                AddFiles(paths);
+        }
+
+        private void BtnChooseFile_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new OpenFileDialog { Multiselect = true };
             if (dialog.ShowDialog() == true)
-            {
-                _selectedFilePath = dialog.FileName;
-                SelectedFileTextBlock.Text = _selectedFilePath;
-                StatusTextBlock.Text = "Đã chọn file.";
-                UploadButton.IsEnabled = true;
-            }
+                AddFiles(dialog.FileNames);
         }
 
-        private async void UploadButton_Click(object sender, RoutedEventArgs e)
+        private void AddFiles(string[] paths)
         {
-            if (_selectedFilePath is null)
-            {
-                StatusTextBlock.Text = "Bạn chưa chọn file.";
-                return;
-            }
-
-            ChooseFileButton.IsEnabled = false;
-            UploadButton.IsEnabled = false;
-            StatusTextBlock.Text = "Đang gửi file...";
-
-            UploadResult result = await _uploadClientService.UploadFileAsync(_selectedFilePath);
-
-            StatusTextBlock.Text = result.Message;
-            ChooseFileButton.IsEnabled = true;
-            UploadButton.IsEnabled = File.Exists(_selectedFilePath);
+            foreach (var path in paths)
+                FileList.Add(new UploadItemViewModel(path));
         }
     }
 }
