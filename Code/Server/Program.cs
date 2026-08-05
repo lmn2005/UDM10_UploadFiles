@@ -1,24 +1,35 @@
 using System;
 using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace UDM10.Server
 {
-    class Program
+    internal class Program
     {
         static async Task Main(string[] args)
         {
-            // ===== TEST TẠM - xóa sau khi test xong =====
-            var testLogger = new ServerLogger("Extra/TestLogs/server.log");
-            var testStorage = new FileStorageService("Extra/TestData/Uploads", testLogger);
+            Console.WriteLine("=== UDM10 SERVER STARTING ===");
+            int port = 9000;
 
-            byte[] fakeData = System.Text.Encoding.UTF8.GetBytes("Xin chao, day la file test!");
-            using (var testStream = new MemoryStream(fakeData))
+            try
             {
-                string savedPath = await testStorage.SaveFileAsync("hello.txt", fakeData.Length, testStream);
-                Console.WriteLine($"Đã lưu file tại: {savedPath}");
+                string basePath = AppDomain.CurrentDomain.BaseDirectory;
+                string configPath = Path.Combine(basePath, "appsettings.json");
+
+                string jsonString = File.ReadAllText(configPath);
+                using JsonDocument doc = JsonDocument.Parse(jsonString);
+
+                port = doc.RootElement.GetProperty("Network").GetProperty("Port").GetInt32();
             }
-            // ===== HẾT TEST TẠM =====
+            catch (Exception ex)
+            {
+                Console.WriteLine("[ERROR] Failed to read appsettings.json: {0}", ex.Message);
+                Console.WriteLine("Using default port: {0}", port);
+            }
+
+            UploadServer server = new UploadServer(port);
+            await server.StartAsync();
         }
     }
 }
