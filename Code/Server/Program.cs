@@ -1,39 +1,36 @@
 using System;
 using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace UDM10.Server
 {
-    class Program
+    internal class Program
     {
         static async Task Main(string[] args)
         {
-            // ===== TEST TẠM - xóa sau khi test xong =====
-            var testLogger = new ServerLogger("Extra/TestLogs/server.log");
-            var testStorage = new FileStorageService("Extra/TestData/Uploads", testLogger);
+            Console.WriteLine("=== UDM10 SERVER STARTING ===");
+            int port = 9000;
 
-            string sampleFolder = "Extra/TestData/SampleFiles";
-            string[] filePaths = Directory.GetFiles(sampleFolder);
 
-            foreach (string filePath in filePaths)
+            try
             {
-                string fileName = Path.GetFileName(filePath);
-                long fileSize = new FileInfo(filePath).Length;
+                string basePath = AppDomain.CurrentDomain.BaseDirectory;
+                string configPath = Path.Combine(basePath, "appsettings.json");
 
-                using (var fileStream = File.OpenRead(filePath))
-                {
-                    try
-                    {
-                        string savedPath = await testStorage.SaveFileAsync(fileName, fileSize, fileStream);
-                        Console.WriteLine($"OK: {fileName} -> {savedPath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"LỖI với {fileName}: {ex.Message}");
-                    }
-                }
+                string jsonString = File.ReadAllText(configPath);
+                using JsonDocument doc = JsonDocument.Parse(jsonString);
+
+                port = doc.RootElement.GetProperty("Network").GetProperty("Port").GetInt32();
             }
-            // ===== HẾT TEST TẠM =====
+            catch (Exception ex)
+            {
+                Console.WriteLine("[ERROR] Failed to read appsettings.json: {0}", ex.Message);
+                Console.WriteLine("Using default port: {0}", port);
+            }
+
+            UploadServer server = new UploadServer(port);
+            await server.StartAsync();
         }
     }
 }
