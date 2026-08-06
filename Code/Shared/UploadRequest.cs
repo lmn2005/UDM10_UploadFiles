@@ -1,8 +1,9 @@
 namespace UDM10.Shared
 {
-    public sealed class UploadRequest
+    // Cấu trúc gói tin Client gửi lên Server
+    public class UploadRequest
     {
-        public string FileName { get; set; } = string.Empty;
+        public string FileName { get; set; }
         public long FileSize { get; set; }
     }
 }
