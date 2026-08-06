@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 ﻿namespace UDM10.Shared
+=======
+namespace UDM10.Shared
+>>>>>>> main
 {
     public enum ErrorCode
     {
@@ -9,4 +13,8 @@
         ServerError = 4,
         ConnectionLost = 5
     }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> main
