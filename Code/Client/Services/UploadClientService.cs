@@ -41,10 +41,10 @@ namespace UDM10.Client.Services
                     FileSize = fileInfo.Length
                 };
 
-                await ProtocolWriter.WriteMetadataAsync(networkStream, request, cancellationToken);
+                await ProtocolWriter.WriteRequestAsync(networkStream, request);
 
                 UploadResponse? readyResponse = await ReadResponseAsync(networkStream, cancellationToken);
-                if (readyResponse?.Status != UploadStatus.Ready)
+                if (readyResponse?.Status == UploadStatus.Failed)
                 {
                     return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse?.Message)
                         ? "Server chưa sẵn sàng nhận file."
@@ -129,7 +129,7 @@ namespace UDM10.Client.Services
 
             try
             {
-                return await ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, timeoutCts.Token);
+                return await ProtocolReader.ReadResponseAsync(stream);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {

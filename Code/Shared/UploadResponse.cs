@@ -1,9 +1,10 @@
 namespace UDM10.Shared
 {
-    public sealed class UploadResponse
+    // Cấu trúc phản hồi từ Server về Client
+    public class UploadResponse
     {
         public UploadStatus Status { get; set; }
         public ErrorCode Error { get; set; }
-        public string Message { get; set; } = string.Empty;
+        public string Message { get; set; }
     }
 }
