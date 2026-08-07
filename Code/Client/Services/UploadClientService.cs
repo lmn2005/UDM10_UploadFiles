@@ -104,6 +104,14 @@ namespace UDM10.Client.Services
             {
                 return UploadResult.Fail("Không có quyền đọc file.");
             }
+            catch (InvalidDataException)
+            {
+                return UploadResult.Fail("Server phản hồi không đúng định dạng.");
+            }
+            catch (EndOfStreamException)
+            {
+                return UploadResult.Fail("Server đóng kết nối trước khi trả kết quả.");
+            }
             catch (IOException)
             {
                 return UploadResult.Fail("Mất kết nối hoặc không đọc được file.");
