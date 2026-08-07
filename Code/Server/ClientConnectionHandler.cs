@@ -1,62 +1,128 @@
 ﻿using System;
 using System.Net.Sockets;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace UDM10.Server
 {
     public class ClientConnectionHandler
     {
-        public async Task HandleClientAsync(TcpClient client)
+        private readonly TcpClient _client;
+        private readonly ServerLogger _logger;
+        private readonly FileStorageService _storageService;
+        
+        public ClientConnectionHandler(TcpClient client, ServerLogger logger, FileStorageService storageService)
         {
-            // Get the client's IP address for logging purposes
-            string clientEndPoint = client.Client.RemoteEndPoint?.ToString() ?? "Unknown IP";
+            _client = client;
+            _logger = logger;
+            _storageService = storageService;
+        }
+
+        public async Task HandleAsync()
+        {
+            string clientEndPoint = _client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
+            string? tempFilePath = null;
 
             try
             {
-                using NetworkStream stream = client.GetStream();
+                using NetworkStream stream = _client.GetStream();
+                _logger.LogInfo($"[{clientEndPoint}] Starting to handle data flow...");
 
-                Console.WriteLine("[{0}] Starting to handle data flow...", clientEndPoint);
-                // ==========================================
-                // TODO 1: READ METADATA (Pending 'Shared' branch)
-                // ==========================================
-                // 1.1. Read the first 4 bytes to determine the JSON string length
-                // 1.2. Read the JSON string based on the received length
-                // 1.3. Deserialize the JSON into an object (extract file name, size)
+                // 1. Read Metadata
+                // 1.1 Read 4 bytes for determine the length of the metadata (the length of JSON string)
+                byte[] lengthBuffer = new byte[4];
+                await stream.ReadExactlyAsync(lengthBuffer, 0, 4);
+                int jsonLength = BitConverter.ToInt32(lengthBuffer, 0);
 
-                // Mock filename to prevent code errors
-                string mockFileName = "test_file.txt";
-                Console.WriteLine("[{0}] Request to upload file: {1}", clientEndPoint, mockFileName);
-                // ==========================================
-                // TODO 2: SEND READY RESPONSE
-                // ==========================================
-                // 2.1. Validate the file using MetadataValidator
-                // 2.2. If valid, send a READY response to the Client
+                // 1.2 Read the JSON string based on the length
+                byte[] jsonBuffer = new byte[jsonLength];
+                await stream.ReadExactlyAsync(jsonBuffer, 0, jsonLength);
+                string jsonString = Encoding.UTF8.GetString(jsonBuffer);
 
-                // ==========================================
-                // TODO 3: RECEIVE FILE DATA IN 64KB CHUNKS
-                // ==========================================
-                // 3.1. Create a .part file on the disk (e.g., test_file.txt.part)
-                // 3.2. Use a while loop (until all bytes are received) to call stream.ReadAsync()
-                // 3.3. Write data to the FileStream
+                // 1.3 Deserialize the JSON string to get file name and size
+                using JsonDocument doc = JsonDocument.Parse(jsonString);
+                JsonElement root = doc.RootElement;
+                string fileName = root.GetProperty("FileName").GetString() ?? "unnamed_file";
+                long fileSize = root.GetProperty("FileSize").GetInt64();
 
-                // ==========================================
-                // TODO 4: FINALIZE & CLEAN UP
-                // ==========================================
-                // 4.1. Rename the file from .part to the official filename
-                // 4.2. Send a COMPLETED notification to the Client
+                _logger.LogInfo($"[{clientEndPoint}] Request to upload file: {fileName} {fileSize} bytes");
 
-                Console.WriteLine("[{0}] Upload completed successfully.", clientEndPoint);
+                // 2. Validate and send ready response
+                if (fileSize <= 0 || string.IsNullOrWhiteSpace(fileName))
+                {
+                    byte[] errorResponse = Encoding.UTF8.GetBytes("ERROR: Invalid Metadata");
+                    await stream.WriteAsync(errorResponse, 0, errorResponse.Length);
+                    return;
+                }
+
+                // Send ready signal to response to the client
+                byte[] readyResponse = Encoding.UTF8.GetBytes("READY");
+                await stream.WriteAsync(readyResponse, 0, readyResponse.Length);
+                await stream.FlushAsync();
+
+                // 3. Receive file data in 64Kb chunks
+                string uploadDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Uploads");
+                Directory.CreateDirectory(uploadDirectory);
+
+                tempFilePath = Path.Combine(uploadDirectory, $"{fileName}.part");
+                string finalFilePath = Path.Combine(uploadDirectory, fileName);
+
+                byte[] buffer = new byte[64 * 1024]; // 64Kb buffer
+                long totalBytesReceived = 0;
+
+                using (FileStream fs = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    while(totalBytesReceived < fileSize)
+                    {
+                        int bytesToRead = (int)Math.Min(buffer.Length, fileSize - totalBytesReceived);
+                        int bytesRead = await stream.ReadAsync(buffer, 0, bytesToRead);
+
+                        if (bytesRead == 0)
+                        {
+                            throw new Exception("Client disconnected while transferring file.");
+                        }
+
+                        await fs.WriteAsync(buffer, 0, bytesRead);
+                        totalBytesReceived += bytesRead;
+                    }
+                    
+                }
+
+                // 4. Finalize and clean up
+                if (totalBytesReceived == fileSize)
+                {
+                    // Change file name from .part to offical file name
+                    File.Move(tempFilePath, finalFilePath, overwrite: true);
+
+                    // Send completed signal to the client
+                    byte[] completedResponse = Encoding.UTF8.GetBytes("COMPLETED");
+                    await stream.WriteAsync(completedResponse, 0, completedResponse.Length);
+
+                    _logger.LogInfo($"[{clientEndPoint}] Upload completed successfully: {fileName}");
+                }
             }
             catch (Exception ex)
             {
-                // If the client suddenly disconnects or sends garbage data, the error will be caught here.
-                Console.WriteLine("[{0}] Error occurred while handling client: {1}", clientEndPoint, ex.Message);
-                // TODO: Delete the .part file if writing was interrupted.
+                _logger.LogError($"[{clientEndPoint}] Error occurred while handling client connection: {ex.Message}");
+
+                if (!string.IsNullOrEmpty(tempFilePath) && File.Exists(tempFilePath))
+                {
+                    try
+                    {
+                        File.Delete(tempFilePath);
+                        _logger.LogInfo($"[{clientEndPoint}] Cleaned up incomplete file: {tempFilePath}");
+                    }
+                    catch (Exception deleteEx)
+                    {
+                        _logger.LogError($"[{clientEndPoint}] Failed to delete temp file: {deleteEx.Message}"); 
+                    }
+                }
             }
             finally
             {
-                client.Close();
-                Console.WriteLine("Connection to {0} closed.", clientEndPoint);
+                _client.Close();
+                _logger.LogInfo($"Connection to {clientEndPoint} closed.");
             }
         }
     }

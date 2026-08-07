@@ -25,11 +25,14 @@ namespace UDM10.Server
             }
             catch (Exception ex)
             {
-                Console.WriteLine("[ERROR] Failed to read appsettings.json: {0}", ex.Message);
-                Console.WriteLine("Using default port: {0}", port);
+                Console.WriteLine($"[ERROR] Failed to read appsettings.json: {ex.Message}");
+                Console.WriteLine($"Using default port: {port}");
             }
 
-            UploadServer server = new UploadServer(port);
+            ServerLogger logger = new ServerLogger("Logs/server_log.txt");
+            FileStorageService storageService = new FileStorageService("Uploads/", logger);
+
+            UploadServer server = new UploadServer(port, logger, storageService);
             await server.StartAsync();
         }
     }

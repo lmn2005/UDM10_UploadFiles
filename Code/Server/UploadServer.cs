@@ -10,12 +10,16 @@ namespace UDM10.Server
     public class UploadServer
     {
         private readonly int _port;
+        private readonly ServerLogger _logger;
+        private readonly FileStorageService _storageService;
         private TcpListener? _listener;
         private bool _isRunning;
 
-        public UploadServer(int port)
+        public UploadServer(int port, ServerLogger logger, FileStorageService storageService)
         {
             _port = port;
+            _logger = logger;
+            _storageService = storageService;
         }
 
         public async Task StartAsync()
@@ -26,22 +30,31 @@ namespace UDM10.Server
                 _listener.Start();
                 _isRunning = true;
 
+                _logger.LogInfo("Server started successfully!");
+                _logger.LogInfo($"Server is listening on port {_port}");
                 Console.WriteLine("Server started successfully!");
-                Console.WriteLine("Server is listening on port {0}", _port);
+                Console.WriteLine($"Server is listening on port {_port}");
 
                 while (_isRunning)
                 {
                     TcpClient client = await _listener.AcceptTcpClientAsync();
-                    Console.WriteLine("\nNew client connected: {0}", client.Client.RemoteEndPoint);
+                    string clientEndPoint = client.Client.RemoteEndPoint?.ToString() ?? "Unknown IP";
 
-                    ClientConnectionHandler handler = new ClientConnectionHandler();
+                    _logger.LogInfo($"New client connected: {clientEndPoint}");
+                    Console.WriteLine($"\nNew client connected: {client.Client.RemoteEndPoint}");
 
-                    _ = handler.HandleClientAsync(client);
+                    ClientConnectionHandler handler = new ClientConnectionHandler(client, _logger, _storageService);
+
+                    _ = handler.HandleAsync();
                 }
             }
             catch (Exception ex)
             {
-                if (_isRunning) Console.WriteLine("[Server Startup Error]: {0}", ex.Message);
+                if (_isRunning) 
+                { 
+                    _logger.LogInfo($"[Server Startup Error]: {ex.Message}");
+                    Console.WriteLine($"[Server Startup Error]: {ex.Message}");
+                }
             }
         }
 
@@ -49,6 +62,8 @@ namespace UDM10.Server
         {
             _isRunning = false;
             _listener?.Stop();
+
+            _logger.LogInfo("Server stopped.");
             Console.WriteLine("Server stopped.");
         }
     }
