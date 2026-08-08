@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO; 
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -36,18 +36,20 @@ namespace UDM10.Server
 
                 _logger.LogInfo($"[{clientEndPoint}] Request to upload file: {fileName} {fileSize} bytes");
 
-                if(!MetadataValidator.IsValid(fileName, fileSize, out string validationError))
+                
+                if (fileSize <= 0 || string.IsNullOrWhiteSpace(fileName))
                 {
                     var errorResponse = new UploadResponse
                     {
                         Status = UploadStatus.Failed, 
                         Error = ErrorCode.InvalidRequest, 
-                        Message = validationError
+                        Message = "ERROR: Invalid Metadata"
                     };
                     await ProtocolWriter.WriteResponseAsync(stream, errorResponse);
                     return;
                 }
 
+                
                 var readyResponse = new UploadResponse
                 {
                     Status = UploadStatus.Pending, 
@@ -56,6 +58,8 @@ namespace UDM10.Server
                 };
                 await ProtocolWriter.WriteResponseAsync(stream, readyResponse);
 
+
+                
                 string uploadDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Uploads");
                 Directory.CreateDirectory(uploadDirectory);
 
@@ -80,16 +84,19 @@ namespace UDM10.Server
                         await fs.WriteAsync(buffer, 0, bytesRead);
                         totalBytesReceived += bytesRead;
                     }
+
                 }
 
+               
                 if (totalBytesReceived == fileSize)
                 {
                     File.Move(tempFilePath, finalFilePath, overwrite: true);
 
+                    
                     var completedResponse = new UploadResponse
                     {
                         Status = UploadStatus.Completed,
-                        Message = "File uploaded successfully."
+                        Message = "File uploaded successfully"
                     };
                     await ProtocolWriter.WriteResponseAsync(stream, completedResponse);
 
@@ -100,6 +107,7 @@ namespace UDM10.Server
             {
                 _logger.LogError($"[{clientEndPoint}] Error occurred while handling client connection: {ex.Message}");
 
+               
                 try
                 {
                     if (_client.Connected)
