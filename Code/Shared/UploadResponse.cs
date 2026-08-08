@@ -1,14 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
 namespace UDM10.Shared
 {
+    // Cấu trúc phản hồi từ Server về Client
     public class UploadResponse
     {
-        public string Status { get; set; } = string.Empty;
-        public string Message { get; set; } = string.Empty;
+        public UploadStatus Status { get; set; }
+        public ErrorCode Error { get; set; }
+        public string Message { get; set; }
     }
 }
