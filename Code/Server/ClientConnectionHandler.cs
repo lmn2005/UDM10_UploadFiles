@@ -3,6 +3,8 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using UDM10.Server;
+using UDM10.Shared;
 
 namespace UDM10.Server
 {
@@ -49,17 +51,14 @@ namespace UDM10.Server
                 _logger.LogInfo($"[{clientEndPoint}] Request to upload file: {fileName} {fileSize} bytes");
 
                 // 2. Validate and send ready response
-                if (fileSize <= 0 || string.IsNullOrWhiteSpace(fileName))
+                if(!MetadataValidator.IsValid(fileName, fileSize, out string validationError))
                 {
-                    byte[] errorResponse = Encoding.UTF8.GetBytes("ERROR: Invalid Metadata");
-                    await stream.WriteAsync(errorResponse, 0, errorResponse.Length);
+                    await SendResponseAsync(stream, "ERROR", validationError);
                     return;
                 }
 
                 // Send ready signal to response to the client
-                byte[] readyResponse = Encoding.UTF8.GetBytes("READY");
-                await stream.WriteAsync(readyResponse, 0, readyResponse.Length);
-                await stream.FlushAsync();
+                await SendResponseAsync(stream, "READY", "Server is ready to receive file data.");
 
                 // 3. Receive file data in 64Kb chunks
                 string uploadDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Uploads");
@@ -96,8 +95,7 @@ namespace UDM10.Server
                     File.Move(tempFilePath, finalFilePath, overwrite: true);
 
                     // Send completed signal to the client
-                    byte[] completedResponse = Encoding.UTF8.GetBytes("COMPLETED");
-                    await stream.WriteAsync(completedResponse, 0, completedResponse.Length);
+                    await SendResponseAsync(stream, "COMPLETED", "File uploaded successfully.");
 
                     _logger.LogInfo($"[{clientEndPoint}] Upload completed successfully: {fileName}");
                 }
@@ -124,6 +122,26 @@ namespace UDM10.Server
                 _client.Close();
                 _logger.LogInfo($"Connection to {clientEndPoint} closed.");
             }
+        }
+
+        private async Task SendResponseAsync(NetworkStream stream, string status, string message)
+        {
+            var response = new UploadResponse
+            {
+                Status = status,
+                Message = message
+            };
+
+            string jsonString = JsonSerializer.Serialize(response);
+            byte[] responseBytes = Encoding.UTF8.GetBytes(jsonString);
+
+            // Send the length of the JSON string first (4 bytes) - Similar to how Client sends Metadata
+            byte[] lengthBytes = BitConverter.GetBytes(responseBytes.Length);
+            await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
+
+            // Send the JSON string
+            await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
+            await stream.FlushAsync();
         }
     }
 }
