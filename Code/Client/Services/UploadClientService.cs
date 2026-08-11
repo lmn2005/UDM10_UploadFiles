@@ -44,25 +44,16 @@ namespace UDM10.Client.Services
                 await ProtocolWriter.WriteMetadataAsync(networkStream, request, cancellationToken);
 
                 UploadResponse? readyResponse = await ReadResponseAsync(networkStream, cancellationToken);
-                if (readyResponse?.Status != UploadStatus.Ready)
+                if (readyResponse?.Status == UploadStatus.Error)
                 {
                     return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse?.Message)
                         ? "Server chưa sẵn sàng nhận file."
                         : readyResponse.Message);
                 }
 
-                int chunkSize = _settings.Upload.ChunkSizeBytes > 0 ? _settings.Upload.ChunkSizeBytes : 8192;
-                byte[] buffer = new byte[chunkSize];
-
-                await using FileStream fileStream = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, chunkSize, true);
-
-                int bytesRead;
-                while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)) > 0)
-                {
-                    await networkStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-                }
-
-                await networkStream.FlushAsync(cancellationToken);
+                int chunkSize = _settings.Upload.ChunkSizeBytes > 0 ? _settings.Upload.ChunkSizeBytes : 65536;
+                ChunkedFileSender fileSender = new(chunkSize);
+                await fileSender.SendAsync(filePath, networkStream, cancellationToken);
 
                 UploadResponse? finalResponse = await ReadResponseAsync(networkStream, cancellationToken);
                 if (finalResponse?.Status == UploadStatus.Completed)
@@ -103,6 +94,14 @@ namespace UDM10.Client.Services
             catch (UnauthorizedAccessException)
             {
                 return UploadResult.Fail("Không có quyền đọc file.");
+            }
+            catch (InvalidDataException)
+            {
+                return UploadResult.Fail("Server phản hồi không đúng định dạng.");
+            }
+            catch (EndOfStreamException)
+            {
+                return UploadResult.Fail("Server đóng kết nối trước khi trả kết quả.");
             }
             catch (IOException)
             {
