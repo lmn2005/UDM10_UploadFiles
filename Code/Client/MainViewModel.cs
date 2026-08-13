@@ -10,8 +10,8 @@ namespace UDM10.Client
         public ObservableCollection<UploadItemViewModel> FileList { get; } = new();
         private readonly FileSelectionService _fileSelectionService = new();
 
-        // Tạm thời dùng mock, thay bằng UploadManager thật của Hiệp khi anh ấy code xong
-        private readonly IUploadManager _uploadManager = new MockUploadManager();
+
+        private readonly IUploadManager _uploadManager = new UploadClientService();
 
         public void AddFilesFromDialog()
         {
@@ -29,15 +29,13 @@ namespace UDM10.Client
         {
             foreach (var path in paths)
             {
-                // Ngăn thêm trùng cùng một đường dẫn (yêu cầu bắt buộc)
+                
                 if (FileList.Any(f => f.FilePath == path)) continue;
 
                 var item = new UploadItemViewModel(path);
                 FileList.Add(item);
 
-                // IProgress<T> tự động chạy callback trên đúng luồng UI
-                // (nó tự "chụp" SynchronizationContext lúc tạo ra),
-                // nên KHÔNG cần gọi Dispatcher.Invoke thủ công nữa.
+              
                 var progress = new Progress<UploadProgress>(p =>
                 {
                     item.PercentComplete = p.PercentComplete;
