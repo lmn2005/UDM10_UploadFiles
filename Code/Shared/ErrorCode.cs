@@ -7,6 +7,8 @@ namespace UDM10.Shared
         FileTooLarge = 2,
         InvalidRequest = 3,
         ConnectionLost = 4,
-        FileAlreadyExists = 5
+        FileAlreadyExists = 5,
+        FileNameEmpty = 6,     
+        FileSizeInvalid = 7    
     }
 }
