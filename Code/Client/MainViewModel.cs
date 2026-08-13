@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Windows;
 
@@ -10,8 +11,7 @@ namespace UDM10.Client
         public ObservableCollection<UploadItemViewModel> FileList { get; } = new();
         private readonly FileSelectionService _fileSelectionService = new();
 
-        // Tạm thời dùng mock, thay bằng UploadManager thật của Hiệp khi anh ấy code xong
-        private readonly IUploadManager _uploadManager = new MockUploadManager();
+        private readonly IUploadManager _uploadManager = new UploadManager();
 
         public void AddFilesFromDialog()
         {
@@ -29,8 +29,8 @@ namespace UDM10.Client
         {
             foreach (var path in paths)
             {
-                // Ngăn thêm trùng cùng một đường dẫn (yêu cầu bắt buộc)
-                if (FileList.Any(f => f.FilePath == path)) continue;
+                // Ngăn thêm cùng một file qua chọn file nhiều lần hoặc kéo-thả lại.
+                if (FileList.Any(f => IsSamePath(f.FilePath, path))) continue;
 
                 var item = new UploadItemViewModel(path);
                 FileList.Add(item);
@@ -47,6 +47,21 @@ namespace UDM10.Client
                 });
 
                 _uploadManager.EnqueueFile(item.FilePath, progress);
+            }
+        }
+
+        private static bool IsSamePath(string firstPath, string secondPath)
+        {
+            try
+            {
+                return string.Equals(
+                    Path.GetFullPath(firstPath),
+                    Path.GetFullPath(secondPath),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException)
+            {
+                return string.Equals(firstPath, secondPath, StringComparison.OrdinalIgnoreCase);
             }
         }
     }
