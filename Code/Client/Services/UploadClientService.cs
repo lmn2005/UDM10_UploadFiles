@@ -58,7 +58,7 @@ namespace UDM10.Client.Services
                 await ProtocolWriter.WriteMetadataAsync(networkStream, request, cancellationToken);
 
                 var readyResponse = await ReadResponseAsync(networkStream, cancellationToken);
-                if (readyResponse?.Status == UploadStatus.Failed || readyResponse?.Status == UploadStatus.Error)
+                if (readyResponse?.Status == UploadStatus.Error)
                 {
                     return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse?.Message)
                         ? "Server từ chối nhận file."
