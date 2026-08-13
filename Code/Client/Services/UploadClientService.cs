@@ -1,6 +1,9 @@
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
+using System.Threading;
+using System.Threading.Tasks;
 using UDM10.Client;
 using UDM10.Shared;
 
@@ -52,14 +55,19 @@ namespace UDM10.Client.Services
                     FileSize = fileInfo.Length
                 };
 
-                await ProtocolWriter.WriteRequestAsync(networkStream, request);
+                await ProtocolWriter.WriteMetadataAsync(networkStream, request, cancellationToken);
 
-                UploadResponse? readyResponse = await ReadResponseAsync(networkStream, cancellationToken);
-                if (readyResponse?.Status == UploadStatus.Failed)
+                var readyResponse = await ReadResponseAsync(networkStream, cancellationToken);
+                if (readyResponse?.Status == UploadStatus.Failed || readyResponse?.Status == UploadStatus.Error)
                 {
                     return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse?.Message)
-                        ? "Server chưa sẵn sàng nhận file."
+                        ? "Server từ chối nhận file."
                         : readyResponse.Message);
+                }
+
+                if (readyResponse?.Status != UploadStatus.Ready)
+                {
+                    return UploadResult.Fail("Server trả trạng thái không hợp lệ.");
                 }
 
                 progress?.Report(new UploadProgress
@@ -108,7 +116,7 @@ namespace UDM10.Client.Services
 
                 await networkStream.FlushAsync(cancellationToken);
 
-                UploadResponse? finalResponse = await ReadResponseAsync(networkStream, cancellationToken);
+                var finalResponse = await ReadResponseAsync(networkStream, cancellationToken);
                 if (finalResponse?.Status == UploadStatus.Completed)
                 {
                     return UploadResult.Success(string.IsNullOrWhiteSpace(finalResponse.Message)
@@ -168,7 +176,7 @@ namespace UDM10.Client.Services
 
         private async Task<UploadResponse?> ReadResponseAsync(NetworkStream stream, CancellationToken cancellationToken)
         {
-            Task<UploadResponse> responseTask = ProtocolReader.ReadResponseAsync(stream);
+            Task<UploadResponse?> responseTask = ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, cancellationToken);
             Task timeoutTask = Task.Delay(
                 Math.Max(1, _settings.Network.ReceiveTimeoutMs),
                 cancellationToken);

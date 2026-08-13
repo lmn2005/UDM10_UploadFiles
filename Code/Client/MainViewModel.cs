@@ -3,7 +3,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Windows;
-
+using UDM10.Client.Services;
 namespace UDM10.Client
 {
     public class MainViewModel
