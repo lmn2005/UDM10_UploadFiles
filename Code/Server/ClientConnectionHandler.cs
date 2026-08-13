@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 using UDM10.Shared;
 
@@ -22,19 +23,25 @@ namespace UDM10.Server
         public async Task HandleAsync()
         {
             string clientEndPoint = _client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
+            CancellationToken cancellationToken = CancellationToken.None;
 
             try
             {
                 using NetworkStream stream = _client.GetStream();
                 _logger.LogInfo($"[{clientEndPoint}] Starting to handle data flow...");
 
-                UploadRequest request = await ProtocolReader.ReadRequestAsync(stream);
+                UploadRequest? request = await ProtocolReader.ReadMetadataAsync<UploadRequest>(stream, cancellationToken);
+                if (request is null)
+                {
+                    _logger.LogError($"[{clientEndPoint}] Không đọc được metadata từ client.");
+                    return;
+                }
+
                 string fileName = request.FileName ?? string.Empty;
                 long fileSize = request.FileSize;
 
                 _logger.LogInfo($"[{clientEndPoint}] Request (ID: {request.RequestId}) upload: {fileName} ({fileSize} bytes)");
 
-             
                 if (!MetadataValidator.IsValid(fileName, fileSize, out ErrorCode validationErrorCode, out string validationError))
                 {
                     var errorResponse = new UploadResponse
@@ -44,11 +51,10 @@ namespace UDM10.Server
                         Error = validationErrorCode,
                         Message = validationError
                     };
-                    await ProtocolWriter.WriteResponseAsync(stream, errorResponse);
-                    return; 
+                    await ProtocolWriter.WriteMetadataAsync(stream, errorResponse, cancellationToken);
+                    return;
                 }
 
-             
                 var readyResponse = new UploadResponse
                 {
                     RequestId = request.RequestId,
@@ -56,11 +62,10 @@ namespace UDM10.Server
                     Error = ErrorCode.None,
                     Message = "Ready to receive file chunks"
                 };
-                await ProtocolWriter.WriteResponseAsync(stream, readyResponse);
+                await ProtocolWriter.WriteMetadataAsync(stream, readyResponse, cancellationToken);
 
                 string savedPath = await _storageService.SaveFileAsync(fileName, fileSize, stream);
 
-          
                 var completedResponse = new UploadResponse
                 {
                     RequestId = request.RequestId,
@@ -68,7 +73,7 @@ namespace UDM10.Server
                     Error = ErrorCode.None,
                     Message = "File upload successfully."
                 };
-                await ProtocolWriter.WriteResponseAsync(stream, completedResponse);
+                await ProtocolWriter.WriteMetadataAsync(stream, completedResponse, cancellationToken);
 
                 _logger.LogInfo($"[{clientEndPoint}] Upload completed: {savedPath}");
             }
@@ -85,7 +90,7 @@ namespace UDM10.Server
                             Error = ErrorCode.UnknownError,
                             Message = ex.Message
                         };
-                        await ProtocolWriter.WriteResponseAsync(_client.GetStream(), errorResponse);
+                        await ProtocolWriter.WriteMetadataAsync(_client.GetStream(), errorResponse, cancellationToken);
                     }
                 }
                 catch { }

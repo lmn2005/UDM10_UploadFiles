@@ -12,6 +12,7 @@ namespace UDM10.Server
             Console.WriteLine("=== UDM10 SERVER STARTING ===");
             int port = 9000;
 
+
             try
             {
                 string basePath = AppDomain.CurrentDomain.BaseDirectory;

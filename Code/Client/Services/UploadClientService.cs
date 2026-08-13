@@ -1,10 +1,11 @@
 using System;
 using System.IO;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 using UDM10.Shared;
 
-namespace UDM10.Client
+namespace UDM10.Client.Services
 {
     public class UploadClientService : IUploadManager
     {
@@ -19,6 +20,8 @@ namespace UDM10.Client
 
         private async Task UploadFileAsync(string filePath, IProgress<UploadProgress> progress)
         {
+            CancellationToken cancellationToken = CancellationToken.None;
+
             try
             {
                 var fileInfo = new FileInfo(filePath);
@@ -34,44 +37,41 @@ namespace UDM10.Client
                     FileSize = fileInfo.Length
                 };
 
-                await ProtocolWriter.WriteRequestAsync(stream, request);
-                var response = await ProtocolReader.ReadResponseAsync(stream);
+                await ProtocolWriter.WriteMetadataAsync(stream, request, cancellationToken);
+                var readyResponse = await ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, cancellationToken);
 
-             
-                if (response.Status == UploadStatus.Error)
+                if (readyResponse is null)
                 {
-                    progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = $"Từ chối: {response.Message}" });
+                    progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = "Server không phản hồi." });
                     return;
                 }
 
-                if (response.Status == UploadStatus.Ready)
+                if (readyResponse.Status == UploadStatus.Error)
                 {
-                    progress.Report(new UploadProgress { Status = UploadItemStatus.Uploading, Message = "Đang tải lên...", PercentComplete = 0 });
+                    progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = $"Từ chối: {readyResponse.Message}" });
+                    return;
+                }
 
-                    using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
-                    byte[] buffer = new byte[_chunkSize];
-                    int bytesRead;
-                    long totalRead = 0;
+                if (readyResponse.Status != UploadStatus.Ready)
+                {
+                    progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = "Server trả trạng thái không hợp lệ." });
+                    return;
+                }
 
-                    
-                    while ((bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
-                    {
-                        await stream.WriteAsync(buffer, 0, bytesRead);
-                        totalRead += bytesRead;
-                        double percent = (double)totalRead / fileInfo.Length * 100;
-                        progress.Report(new UploadProgress { Status = UploadItemStatus.Uploading, PercentComplete = Math.Round(percent, 1), Message = "Đang truyền dữ liệu..." });
-                    }
+                progress.Report(new UploadProgress { Status = UploadItemStatus.Uploading, Message = "Đang tải lên...", PercentComplete = 0 });
 
-              
-                    var completedResponse = await ProtocolReader.ReadResponseAsync(stream);
-                    if (completedResponse.Status == UploadStatus.Completed)
-                    {
-                        progress.Report(new UploadProgress { Status = UploadItemStatus.Completed, PercentComplete = 100, Message = "Hoàn tất" });
-                    }
-                    else
-                    {
-                        progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = completedResponse.Message ?? "Lỗi lưu file tại Server" });
-                    }
+                ChunkedFileSender fileSender = new(_chunkSize);
+                await fileSender.SendAsync(filePath, stream, cancellationToken);
+
+                var finalResponse = await ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, cancellationToken);
+
+                if (finalResponse?.Status == UploadStatus.Completed)
+                {
+                    progress.Report(new UploadProgress { Status = UploadItemStatus.Completed, PercentComplete = 100, Message = "Hoàn tất" });
+                }
+                else
+                {
+                    progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = finalResponse?.Message ?? "Lỗi lưu file tại Server" });
                 }
             }
             catch (Exception ex)
