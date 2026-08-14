@@ -1,83 +1,194 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using UDM10.Client;
 using UDM10.Shared;
 
 namespace UDM10.Client.Services
 {
-    public class UploadClientService : IUploadManager
+    internal sealed class UploadClientService
     {
-        private readonly string _serverIp = "127.0.0.1";
-        private readonly int _port = 9000;
-        private readonly int _chunkSize = ProtocolConstants.ChunkSize;
+        private readonly ClientSettings _settings;
 
-        public void EnqueueFile(string filePath, IProgress<UploadProgress> progress)
+        public UploadClientService()
         {
-            _ = Task.Run(async () => await UploadFileAsync(filePath, progress));
+            _settings = ClientSettings.Load();
         }
 
-        private async Task UploadFileAsync(string filePath, IProgress<UploadProgress> progress)
+        public async Task<UploadResult> UploadFileAsync(
+            string filePath,
+            IProgress<UploadProgress>? progress = null,
+            CancellationToken cancellationToken = default)
         {
-            CancellationToken cancellationToken = CancellationToken.None;
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            {
+                return UploadResult.Fail("File không tồn tại.");
+            }
+
+            FileInfo fileInfo = new(filePath);
 
             try
             {
-                var fileInfo = new FileInfo(filePath);
-                progress.Report(new UploadProgress { Status = UploadItemStatus.Waiting, Message = "Đang kết nối Server..." });
+                progress?.Report(new UploadProgress
+                {
+                    Status = UploadItemStatus.Uploading,
+                    Message = "Đang kết nối Server..."
+                });
 
-                using TcpClient client = new TcpClient();
-                await client.ConnectAsync(_serverIp, _port);
-                using NetworkStream stream = client.GetStream();
+                using TcpClient client = new();
+                using CancellationTokenSource connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                connectCts.CancelAfter(_settings.Network.ConnectTimeoutMs);
 
-                var request = new UploadRequest
+                await client.ConnectAsync(_settings.Network.ServerIp, _settings.Network.Port, connectCts.Token);
+
+                client.ReceiveTimeout = _settings.Network.ReceiveTimeoutMs;
+                client.SendTimeout = _settings.Network.ReceiveTimeoutMs;
+
+                await using NetworkStream networkStream = client.GetStream();
+
+                UploadRequest request = new()
                 {
                     FileName = fileInfo.Name,
                     FileSize = fileInfo.Length
                 };
 
-                await ProtocolWriter.WriteMetadataAsync(stream, request, cancellationToken);
-                var readyResponse = await ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, cancellationToken);
+                await ProtocolWriter.WriteMetadataAsync(networkStream, request, cancellationToken);
 
-                if (readyResponse is null)
+                var readyResponse = await ReadResponseAsync(networkStream, cancellationToken);
+                if (readyResponse?.Status == UploadStatus.Error)
                 {
-                    progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = "Server không phản hồi." });
-                    return;
+                    return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse?.Message)
+                        ? "Server từ chối nhận file."
+                        : readyResponse.Message);
                 }
 
-                if (readyResponse.Status == UploadStatus.Error)
+                if (readyResponse?.Status != UploadStatus.Ready)
                 {
-                    progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = $"Từ chối: {readyResponse.Message}" });
-                    return;
+                    return UploadResult.Fail("Server trả trạng thái không hợp lệ.");
                 }
 
-                if (readyResponse.Status != UploadStatus.Ready)
+                progress?.Report(new UploadProgress
                 {
-                    progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = "Server trả trạng thái không hợp lệ." });
-                    return;
+                    PercentComplete = 0,
+                    Status = UploadItemStatus.Uploading,
+                    Message = "Server đã sẵn sàng, đang gửi file..."
+                });
+
+                int chunkSize = _settings.Upload.ChunkSizeBytes > 0 ? _settings.Upload.ChunkSizeBytes : 8192;
+                byte[] buffer = new byte[chunkSize];
+                long totalSent = 0;
+                Stopwatch stopwatch = Stopwatch.StartNew();
+
+                await using FileStream fileStream = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, chunkSize, true);
+
+                int bytesRead;
+                while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)) > 0)
+                {
+                    await networkStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                    totalSent += bytesRead;
+
+                    double percentComplete = fileInfo.Length == 0
+                        ? 100
+                        : Math.Min(100, totalSent * 100d / fileInfo.Length);
+                    double elapsedSeconds = Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001);
+
+                    progress?.Report(new UploadProgress
+                    {
+                        PercentComplete = percentComplete,
+                        SpeedKBps = totalSent / 1024d / elapsedSeconds,
+                        Status = UploadItemStatus.Uploading,
+                        Message = "Đang gửi file..."
+                    });
                 }
 
-                progress.Report(new UploadProgress { Status = UploadItemStatus.Uploading, Message = "Đang tải lên...", PercentComplete = 0 });
+                if (fileInfo.Length == 0)
+                {
+                    progress?.Report(new UploadProgress
+                    {
+                        PercentComplete = 100,
+                        Status = UploadItemStatus.Uploading,
+                        Message = "Đang chờ Server xác nhận..."
+                    });
+                }
 
-                ChunkedFileSender fileSender = new(_chunkSize);
-                await fileSender.SendAsync(filePath, stream, cancellationToken);
+                await networkStream.FlushAsync(cancellationToken);
 
-                var finalResponse = await ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, cancellationToken);
-
+                var finalResponse = await ReadResponseAsync(networkStream, cancellationToken);
                 if (finalResponse?.Status == UploadStatus.Completed)
                 {
-                    progress.Report(new UploadProgress { Status = UploadItemStatus.Completed, PercentComplete = 100, Message = "Hoàn tất" });
+                    return UploadResult.Success(string.IsNullOrWhiteSpace(finalResponse.Message)
+                        ? $"Upload thành công: {fileInfo.Name}"
+                        : finalResponse.Message);
                 }
-                else
+
+                if (finalResponse is null)
                 {
-                    progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = finalResponse?.Message ?? "Lỗi lưu file tại Server" });
+                    return UploadResult.Fail("Server không trả kết quả cuối.");
                 }
+
+                if (!string.IsNullOrWhiteSpace(finalResponse.Message))
+                {
+                    return UploadResult.Fail(finalResponse.Message);
+                }
+
+                return UploadResult.Fail("Upload thất bại.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return UploadResult.Fail("Đã hủy upload.");
+            }
+            catch (OperationCanceledException)
+            {
+                return UploadResult.Fail("Không kết nối được Server. Kiểm tra Server đã bật và đúng port.");
+            }
+            catch (SocketException)
+            {
+                return UploadResult.Fail("Không kết nối được Server. Kiểm tra Server đã bật và đúng port.");
+            }
+            catch (TimeoutException)
+            {
+                return UploadResult.Fail("Server phản hồi quá thời gian chờ.");
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return UploadResult.Fail("Không có quyền đọc file.");
+            }
+            catch (InvalidDataException)
+            {
+                return UploadResult.Fail("Server phản hồi không đúng định dạng.");
+            }
+            catch (EndOfStreamException)
+            {
+                return UploadResult.Fail("Server đóng kết nối trước khi trả kết quả.");
+            }
+            catch (IOException)
+            {
+                return UploadResult.Fail("Mất kết nối hoặc không đọc được file.");
             }
             catch (Exception ex)
             {
-                progress.Report(new UploadProgress { Status = UploadItemStatus.Error, Message = $"Lỗi mạng: {ex.Message}" });
+                return UploadResult.Fail($"Upload lỗi: {ex.Message}");
             }
+        }
+
+        private async Task<UploadResponse?> ReadResponseAsync(NetworkStream stream, CancellationToken cancellationToken)
+        {
+            Task<UploadResponse?> responseTask = ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, cancellationToken);
+            Task timeoutTask = Task.Delay(
+                Math.Max(1, _settings.Network.ReceiveTimeoutMs),
+                cancellationToken);
+
+            Task completedTask = await Task.WhenAny(responseTask, timeoutTask);
+            if (completedTask != responseTask)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new TimeoutException();
+            }
+
+            return await responseTask;
         }
     }
 }
