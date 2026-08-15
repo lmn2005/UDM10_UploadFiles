@@ -9,13 +9,18 @@ using UDM10.Shared;
 
 namespace UDM10.Client.Services
 {
-    internal sealed class UploadClientService
+    internal sealed class UploadClientService : IUploadClient
     {
         private readonly ClientSettings _settings;
 
         public UploadClientService()
+            : this(ClientSettings.Load())
         {
-            _settings = ClientSettings.Load();
+        }
+
+        internal UploadClientService(ClientSettings settings)
+        {
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         }
 
         public async Task<UploadResult> UploadFileAsync(

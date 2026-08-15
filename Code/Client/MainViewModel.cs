@@ -10,8 +10,23 @@ namespace UDM10.Client
     {
         public ObservableCollection<UploadItemViewModel> FileList { get; } = new();
         private readonly FileSelectionService _fileSelectionService = new();
+        private readonly ClientSettings _settings;
+        private readonly IUploadManager _uploadManager;
 
-        private readonly IUploadManager _uploadManager = new UploadManager();
+        public MainViewModel()
+        {
+            _settings = ClientSettings.Load();
+            _uploadManager = new UploadManager(_settings);
+        }
+
+        public string ServerIp => _settings.Network.ServerIp;
+        public int ServerPort => _settings.Network.Port;
+
+        public void UpdateServerEndpoint(string serverIp, int serverPort)
+        {
+            _settings.Network.ServerIp = serverIp;
+            _settings.Network.Port = serverPort;
+        }
 
         public void AddFilesFromDialog()
         {

@@ -4,22 +4,30 @@ namespace UDM10.Client
 {
     internal sealed class UploadManager : IUploadManager
     {
-        private readonly UploadClientService _uploadClientService;
+        private readonly IUploadClient _uploadClient;
         private readonly UploadQueueService _queueService;
         private readonly SemaphoreSlim _availableSlots;
         private readonly SemaphoreSlim _queueSignal = new(0);
 
         public UploadManager()
+            : this(ClientSettings.Load())
         {
-            ClientSettings settings = ClientSettings.Load();
-            int configuredMax = settings.Upload.MaxConcurrentFiles;
-            int maxConcurrentFiles = configuredMax > 0
-                ? Math.Min(configuredMax, 3)
-                : 3;
+        }
 
-            _uploadClientService = new UploadClientService();
+        internal UploadManager(ClientSettings settings)
+            : this(
+                new UploadClientService(settings ?? throw new ArgumentNullException(nameof(settings))),
+                ResolveMaxConcurrentFiles(settings.Upload.MaxConcurrentFiles))
+        {
+        }
+
+        // Constructor này tách phần điều phối khỏi TCP để kiểm thử được queue và giới hạn đồng thời.
+        internal UploadManager(IUploadClient uploadClient, int maxConcurrentFiles)
+        {
+            _uploadClient = uploadClient ?? throw new ArgumentNullException(nameof(uploadClient));
             _queueService = new UploadQueueService();
-            _availableSlots = new SemaphoreSlim(maxConcurrentFiles, maxConcurrentFiles);
+            int normalizedMax = ResolveMaxConcurrentFiles(maxConcurrentFiles);
+            _availableSlots = new SemaphoreSlim(normalizedMax, normalizedMax);
 
             _ = Task.Run(DispatchQueueAsync);
         }
@@ -65,7 +73,7 @@ namespace UDM10.Client
         {
             try
             {
-                UploadResult result = await _uploadClientService.UploadFileAsync(
+                UploadResult result = await _uploadClient.UploadFileAsync(
                     upload.FilePath,
                     upload.Progress);
 
@@ -91,5 +99,8 @@ namespace UDM10.Client
                 _availableSlots.Release();
             }
         }
+
+        private static int ResolveMaxConcurrentFiles(int configuredMax)
+            => configuredMax > 0 ? Math.Min(configuredMax, 3) : 3;
     }
 }
