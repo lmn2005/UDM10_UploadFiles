@@ -1,6 +1,6 @@
 ﻿namespace UDM10.Client
 {
-    public enum UploadItemStatus { Waiting, Uploading, Completed, Error }
+    public enum UploadItemStatus { Waiting, Uploading, Completed, Error, Cancelled }
 
     public class UploadProgress
     {
