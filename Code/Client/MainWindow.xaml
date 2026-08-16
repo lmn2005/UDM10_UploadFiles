@@ -29,12 +29,28 @@
         <ListView x:Name="FileListView" Grid.Row="2" Margin="0,10,0,0">
             <ListView.View>
                 <GridView>
-                    <GridViewColumn Header="Tên file" DisplayMemberBinding="{Binding FileName}" Width="150"/>
-                    <GridViewColumn Header="Kích thước" DisplayMemberBinding="{Binding FileSizeText}" Width="80"/>
-                    <GridViewColumn Header="Trạng thái" DisplayMemberBinding="{Binding Status}" Width="90"/>
-                    <GridViewColumn Header="Tiến độ (%)" DisplayMemberBinding="{Binding PercentComplete}" Width="90"/>
-                    <GridViewColumn Header="Tốc độ (KB/s)" DisplayMemberBinding="{Binding SpeedKBps}" Width="100"/>
-                    <GridViewColumn Header="Thông báo" DisplayMemberBinding="{Binding Message}" Width="120"/>
+                    <GridViewColumn Header="Tên file" DisplayMemberBinding="{Binding FileName}" Width="130"/>
+                    <GridViewColumn Header="Kích thước" DisplayMemberBinding="{Binding FileSizeText}" Width="75"/>
+                    <GridViewColumn Header="Trạng thái" DisplayMemberBinding="{Binding Status}" Width="85"/>
+                    <GridViewColumn Header="Tiến độ (%)" DisplayMemberBinding="{Binding PercentComplete}" Width="80"/>
+                    <GridViewColumn Header="Tốc độ (KB/s)" DisplayMemberBinding="{Binding SpeedKBps}" Width="95"/>
+                    <GridViewColumn Header="Thông báo" DisplayMemberBinding="{Binding Message}" Width="140"/>
+                    <GridViewColumn Header="Cancel" Width="70">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="Cancel" IsEnabled="{Binding CanCancel}"
+                                        Click="BtnCancel_Click" Tag="{Binding}"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="Retry" Width="70">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="Retry" IsEnabled="{Binding CanRetry}"
+                                        Click="BtnRetry_Click" Tag="{Binding}"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
                 </GridView>
             </ListView.View>
         </ListView>

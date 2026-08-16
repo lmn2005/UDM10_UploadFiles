@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 
 namespace UDM10.Client
 {
@@ -23,5 +24,17 @@ namespace UDM10.Client
 
         private void BtnChooseFile_Click(object sender, RoutedEventArgs e)
             => _viewModel.AddFilesFromDialog();
+
+        private void BtnCancel_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is UploadItemViewModel item)
+                _viewModel.CancelFile(item);
+        }
+
+        private void BtnRetry_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is UploadItemViewModel item)
+                _viewModel.RetryFile(item);
+        }
     }
 }
