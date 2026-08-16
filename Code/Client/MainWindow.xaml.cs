@@ -1,5 +1,6 @@
-using System.Windows;
 using System.Net;
+using System.Windows;
+using System.Windows.Controls;
 
 namespace UDM10.Client
 {
@@ -11,8 +12,6 @@ namespace UDM10.Client
         {
             InitializeComponent();
             FileListView.ItemsSource = _viewModel.FileList;
-            TxtServerIp.Text = _viewModel.ServerIp;
-            TxtServerPort.Text = _viewModel.ServerPort.ToString();
         }
 
         private void DropArea_DragEnter(object sender, DragEventArgs e)
@@ -22,12 +21,7 @@ namespace UDM10.Client
         }
 
         private void DropArea_Drop(object sender, DragEventArgs e)
-        {
-            if (TryApplyServerEndpoint())
-            {
-                _viewModel.AddFilesFromDrop(e.Data);
-            }
-        }
+            => _viewModel.AddFilesFromDrop(e.Data);
 
         private void BtnChooseFile_Click(object sender, RoutedEventArgs e)
         {
@@ -35,6 +29,18 @@ namespace UDM10.Client
             {
                 _viewModel.AddFilesFromDialog();
             }
+        }
+
+        private void BtnCancel_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is UploadItemViewModel item)
+                _viewModel.CancelFile(item);
+        }
+
+        private void BtnRetry_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is UploadItemViewModel item)
+                _viewModel.RetryFile(item);
         }
 
         private bool TryApplyServerEndpoint()
@@ -50,8 +56,7 @@ namespace UDM10.Client
                 return false;
             }
 
-            if (!int.TryParse(TxtServerPort.Text.Trim(), out int serverPort)
-                || serverPort is < 1 or > 65535)
+            if (!int.TryParse(TxtServerPort.Text.Trim(), out int serverPort) || serverPort < 1 || serverPort > 65535)
             {
                 MessageBox.Show(
                     "Port phải là số nguyên từ 1 đến 65535.",

@@ -32,7 +32,7 @@ namespace UDM10.Client
             _ = Task.Run(DispatchQueueAsync);
         }
 
-        public void EnqueueFile(string filePath, IProgress<UploadProgress> progress)
+        public void EnqueueFile(string filePath, IProgress<UploadProgress> progress, CancellationToken cancellationToken)
         {
             if (!_queueService.TryEnqueue(filePath, progress))
             {
