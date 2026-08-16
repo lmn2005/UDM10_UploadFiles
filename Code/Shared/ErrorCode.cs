@@ -9,6 +9,9 @@ namespace UDM10.Shared
         ConnectionLost = 4,
         FileAlreadyExists = 5,
         FileNameEmpty = 6,     
-        FileSizeInvalid = 7    
+        FileSizeInvalid = 7,
+        UnsupportedProtocol = 8, 
+        InvalidFileName = 9,     
+        ChecksumMismatch = 10
     }
 }
