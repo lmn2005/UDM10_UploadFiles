@@ -9,8 +9,6 @@ namespace UDM10.Client
     {
         public ObservableCollection<UploadItemViewModel> FileList { get; } = new();
         private readonly FileSelectionService _fileSelectionService = new();
-
-        // Tạm thời dùng mock, thay bằng UploadManager thật của Hiệp khi anh ấy code xong
         private readonly IUploadManager _uploadManager = new MockUploadManager();
 
         public void AddFilesFromDialog()
@@ -21,33 +19,57 @@ namespace UDM10.Client
 
         public void AddFilesFromDrop(IDataObject data)
         {
-            var paths = _fileSelectionService.GetDroppedFiles(data);
-            if (paths != null) AddFiles(paths);
+            var allPaths = (string[])data.GetData(DataFormats.FileDrop);
+            var validPaths = _fileSelectionService.GetDroppedFiles(data);
+
+            if (validPaths != null)
+            {
+                AddFiles(validPaths);
+
+                int skippedFolders = allPaths.Length - validPaths.Length;
+                if (skippedFolders > 0)
+                    MessageBox.Show($"{skippedFolders} thư mục đã bị bỏ qua (chỉ hỗ trợ file).");
+            }
         }
 
         private void AddFiles(string[] paths)
         {
             foreach (var path in paths)
             {
-                // Ngăn thêm trùng cùng một đường dẫn (yêu cầu bắt buộc)
                 if (FileList.Any(f => f.FilePath == path)) continue;
-
                 var item = new UploadItemViewModel(path);
                 FileList.Add(item);
-
-                // IProgress<T> tự động chạy callback trên đúng luồng UI
-                // (nó tự "chụp" SynchronizationContext lúc tạo ra),
-                // nên KHÔNG cần gọi Dispatcher.Invoke thủ công nữa.
-                var progress = new Progress<UploadProgress>(p =>
-                {
-                    item.PercentComplete = p.PercentComplete;
-                    item.SpeedKBps = p.SpeedKBps;
-                    item.Status = p.Status;
-                    item.Message = p.Message ?? "";
-                });
-
-                _uploadManager.EnqueueFile(item.FilePath, progress);
+                StartUpload(item);
             }
+        }
+
+        private void StartUpload(UploadItemViewModel item)
+        {
+            var progress = new Progress<UploadProgress>(p =>
+            {
+                item.PercentComplete = p.PercentComplete;
+                item.SpeedKBps = p.SpeedKBps;
+                item.Status = p.Status;
+                item.Message = p.Message ?? "";
+            });
+
+            _uploadManager.EnqueueFile(item.FilePath, progress, item.CancellationTokenSource.Token);
+        }
+
+        public void CancelFile(UploadItemViewModel item)
+        {
+            if (!item.CanCancel) return;
+            item.CancellationTokenSource.Cancel();
+        }
+
+        public void RetryFile(UploadItemViewModel item)
+        {
+            if (!item.CanRetry) return;
+            item.CancellationTokenSource = new System.Threading.CancellationTokenSource();
+            item.PercentComplete = 0;
+            item.Status = UploadItemStatus.Waiting;
+            item.Message = "";
+            StartUpload(item);
         }
     }
 }
