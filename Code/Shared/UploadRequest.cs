@@ -1,9 +1,12 @@
+using System;
+
 namespace UDM10.Shared
 {
-    // Cấu trúc gói tin Client gửi lên Server
     public class UploadRequest
     {
-        public string FileName { get; set; }
+        public string ProtocolVersion { get; set; } = ProtocolConstants.CurrentVersion;
+        public string RequestId { get; set; } = Guid.NewGuid().ToString();
+        public string? FileName { get; set; }
         public long FileSize { get; set; }
     }
 }

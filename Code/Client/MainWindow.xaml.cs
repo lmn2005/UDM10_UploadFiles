@@ -1,3 +1,4 @@
+using System.Net;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -23,7 +24,12 @@ namespace UDM10.Client
             => _viewModel.AddFilesFromDrop(e.Data);
 
         private void BtnChooseFile_Click(object sender, RoutedEventArgs e)
-            => _viewModel.AddFilesFromDialog();
+        {
+            if (TryApplyServerEndpoint())
+            {
+                _viewModel.AddFilesFromDialog();
+            }
+        }
 
         private void BtnCancel_Click(object sender, RoutedEventArgs e)
         {
@@ -35,6 +41,33 @@ namespace UDM10.Client
         {
             if (sender is Button btn && btn.Tag is UploadItemViewModel item)
                 _viewModel.RetryFile(item);
+        }
+
+        private bool TryApplyServerEndpoint()
+        {
+            string serverIp = TxtServerIp.Text.Trim();
+            if (!IPAddress.TryParse(serverIp, out _))
+            {
+                MessageBox.Show(
+                    "Server IP không hợp lệ.",
+                    "Cấu hình kết nối",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return false;
+            }
+
+            if (!int.TryParse(TxtServerPort.Text.Trim(), out int serverPort) || serverPort < 1 || serverPort > 65535)
+            {
+                MessageBox.Show(
+                    "Port phải là số nguyên từ 1 đến 65535.",
+                    "Cấu hình kết nối",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return false;
+            }
+
+            _viewModel.UpdateServerEndpoint(serverIp, serverPort);
+            return true;
         }
     }
 }

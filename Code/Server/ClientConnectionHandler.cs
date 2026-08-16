@@ -1,8 +1,9 @@
 using System;
-using System.IO; 
+using System.IO;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
-using UDM10.Shared; 
+using UDM10.Shared;
 
 namespace UDM10.Server
 {
@@ -22,116 +23,81 @@ namespace UDM10.Server
         public async Task HandleAsync()
         {
             string clientEndPoint = _client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
-            string? tempFilePath = null;
+            CancellationToken cancellationToken = CancellationToken.None;
 
             try
             {
                 using NetworkStream stream = _client.GetStream();
                 _logger.LogInfo($"[{clientEndPoint}] Starting to handle data flow...");
 
-                UploadRequest request = await ProtocolReader.ReadRequestAsync(stream);
+                UploadRequest? request = await ProtocolReader.ReadMetadataAsync<UploadRequest>(stream, cancellationToken);
+                if (request is null)
+                {
+                    _logger.LogError($"[{clientEndPoint}] Không đọc được metadata từ client.");
+                    return;
+                }
 
-                string fileName = request.FileName ?? "unnamed_file";
+                string fileName = request.FileName ?? string.Empty;
                 long fileSize = request.FileSize;
 
-                _logger.LogInfo($"[{clientEndPoint}] Request to upload file: {fileName} {fileSize} bytes");
+                _logger.LogInfo($"[{clientEndPoint}] Request (ID: {request.RequestId}) upload: {fileName} ({fileSize} bytes)");
 
-                if(!MetadataValidator.IsValid(fileName, fileSize, out string validationError))
+                if (!MetadataValidator.IsValid(fileName, fileSize, out ErrorCode validationErrorCode, out string validationError))
                 {
                     var errorResponse = new UploadResponse
                     {
-                        Status = UploadStatus.Failed, 
-                        Error = ErrorCode.InvalidRequest, 
+                        RequestId = request.RequestId,
+                        Status = UploadStatus.Error,
+                        Error = validationErrorCode,
                         Message = validationError
                     };
-                    await ProtocolWriter.WriteResponseAsync(stream, errorResponse);
+                    await ProtocolWriter.WriteMetadataAsync(stream, errorResponse, cancellationToken);
                     return;
                 }
 
                 var readyResponse = new UploadResponse
                 {
-                    Status = UploadStatus.Pending, 
+                    RequestId = request.RequestId,
+                    Status = UploadStatus.Ready,
                     Error = ErrorCode.None,
                     Message = "Ready to receive file chunks"
                 };
-                await ProtocolWriter.WriteResponseAsync(stream, readyResponse);
+                await ProtocolWriter.WriteMetadataAsync(stream, readyResponse, cancellationToken);
 
-                string uploadDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Uploads");
-                Directory.CreateDirectory(uploadDirectory);
+                string savedPath = await _storageService.SaveFileAsync(fileName, fileSize, stream);
 
-                tempFilePath = Path.Combine(uploadDirectory, $"{fileName}.part");
-                string finalFilePath = Path.Combine(uploadDirectory, fileName);
-
-                byte[] buffer = new byte[64 * 1024]; 
-                long totalBytesReceived = 0;
-
-                using (FileStream fs = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                var completedResponse = new UploadResponse
                 {
-                    while (totalBytesReceived < fileSize)
-                    {
-                        int bytesToRead = (int)Math.Min(buffer.Length, fileSize - totalBytesReceived);
-                        int bytesRead = await stream.ReadAsync(buffer, 0, bytesToRead);
+                    RequestId = request.RequestId,
+                    Status = UploadStatus.Completed,
+                    Error = ErrorCode.None,
+                    Message = "File upload successfully."
+                };
+                await ProtocolWriter.WriteMetadataAsync(stream, completedResponse, cancellationToken);
 
-                        if (bytesRead == 0)
-                        {
-                            throw new Exception("Client disconnected while transferring file.");
-                        }
-
-                        await fs.WriteAsync(buffer, 0, bytesRead);
-                        totalBytesReceived += bytesRead;
-                    }
-                }
-
-                if (totalBytesReceived == fileSize)
-                {
-                    File.Move(tempFilePath, finalFilePath, overwrite: true);
-
-                    var completedResponse = new UploadResponse
-                    {
-                        Status = UploadStatus.Completed,
-                        Message = "File uploaded successfully."
-                    };
-                    await ProtocolWriter.WriteResponseAsync(stream, completedResponse);
-
-                    _logger.LogInfo($"[{clientEndPoint}] Upload completed successfully: {fileName}");
-                }
+                _logger.LogInfo($"[{clientEndPoint}] Upload completed: {savedPath}");
             }
             catch (Exception ex)
             {
-                _logger.LogError($"[{clientEndPoint}] Error occurred while handling client connection: {ex.Message}");
-
+                _logger.LogError($"[{clientEndPoint}] Error: {ex.Message}");
                 try
                 {
                     if (_client.Connected)
                     {
                         var errorResponse = new UploadResponse
                         {
-                            Status = UploadStatus.Failed, 
-                            Error = ErrorCode.UnknownError, 
+                            Status = UploadStatus.Error,
+                            Error = ErrorCode.UnknownError,
                             Message = ex.Message
                         };
-                        await ProtocolWriter.WriteResponseAsync(_client.GetStream(), errorResponse);
+                        await ProtocolWriter.WriteMetadataAsync(_client.GetStream(), errorResponse, cancellationToken);
                     }
                 }
                 catch { }
-
-                if (!string.IsNullOrEmpty(tempFilePath) && File.Exists(tempFilePath))
-                {
-                    try
-                    {
-                        File.Delete(tempFilePath);
-                        _logger.LogInfo($"[{clientEndPoint}] Cleaned up incomplete file: {tempFilePath}");
-                    }
-                    catch (Exception deleteEx)
-                    {
-                        _logger.LogError($"[{clientEndPoint}] Failed to delete temp file: {deleteEx.Message}");
-                    }
-                }
             }
             finally
             {
                 _client.Close();
-                _logger.LogInfo($"Connection to {clientEndPoint} closed.");
             }
         }
     }

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MSTest" Version="4.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\UDM10.Shared.csproj" />
+  </ItemGroup>
+
+  <!-- Liên kết trực tiếp các lớp không phụ thuộc WPF để test được trên mọi hệ điều hành. -->
+  <ItemGroup>
+    <Compile Include="..\Client\IUploadManager.cs" Link="Source\IUploadManager.cs" />
+    <Compile Include="..\Client\UploadManager.cs" Link="Source\UploadManager.cs" />
+    <Compile Include="..\Client\UploadProgress.cs" Link="Source\UploadProgress.cs" />
+    <Compile Include="..\Client\UploadQueueService.cs" Link="Source\UploadQueueService.cs" />
+    <Compile Include="..\Client\Services\ClientSettings.cs" Link="Source\Services\ClientSettings.cs" />
+    <Compile Include="..\Client\Services\IUploadClient.cs" Link="Source\Services\IUploadClient.cs" />
+    <Compile Include="..\Client\Services\UploadClientService.cs" Link="Source\Services\UploadClientService.cs" />
+    <Compile Include="..\Client\Services\UploadResult.cs" Link="Source\Services\UploadResult.cs" />
+  </ItemGroup>
+</Project>
