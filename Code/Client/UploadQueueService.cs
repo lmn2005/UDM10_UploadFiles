@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading;
 
 namespace UDM10.Client
 {
@@ -8,7 +9,10 @@ namespace UDM10.Client
         private readonly Queue<QueuedUpload> _queue = new();
         private readonly HashSet<string> _trackedPaths = new(StringComparer.OrdinalIgnoreCase);
 
-        public bool TryEnqueue(string filePath, IProgress<UploadProgress> progress)
+        public bool TryEnqueue(
+            string filePath,
+            IProgress<UploadProgress> progress,
+            CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(filePath))
             {
@@ -32,7 +36,7 @@ namespace UDM10.Client
                     return false;
                 }
 
-                _queue.Enqueue(new QueuedUpload(normalizedPath, progress));
+                _queue.Enqueue(new QueuedUpload(normalizedPath, progress, cancellationToken));
                 return true;
             }
         }
@@ -75,14 +79,19 @@ namespace UDM10.Client
 
         internal sealed class QueuedUpload
         {
-            public QueuedUpload(string filePath, IProgress<UploadProgress> progress)
+            public QueuedUpload(
+                string filePath,
+                IProgress<UploadProgress> progress,
+                CancellationToken cancellationToken)
             {
                 FilePath = filePath;
                 Progress = progress;
+                CancellationToken = cancellationToken;
             }
 
             public string FilePath { get; }
             public IProgress<UploadProgress> Progress { get; }
+            public CancellationToken CancellationToken { get; }
         }
     }
 }

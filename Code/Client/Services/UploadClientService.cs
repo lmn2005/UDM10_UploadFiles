@@ -143,7 +143,8 @@ namespace UDM10.Client.Services
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                return UploadResult.Fail("Đã hủy upload.");
+                // Để UploadManager phân biệt Cancel với Error và giải phóng đúng slot.
+                throw;
             }
             catch (OperationCanceledException)
             {

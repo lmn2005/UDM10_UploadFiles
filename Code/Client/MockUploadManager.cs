@@ -33,7 +33,7 @@ namespace UDM10.Client
                         Message = "Đã hủy bởi người dùng"
                     });
                 }
-            }, cancellationToken);
+            });
         }
     }
 }
