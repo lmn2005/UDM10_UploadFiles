@@ -3,10 +3,13 @@ namespace UDM10.Shared
     public enum ErrorCode
     {
         None = 0,
-        InvalidMetadata = 1,
+        UnknownError = 1,
         FileTooLarge = 2,
-        FileNameExists = 3,
-        ServerError = 4,
-        ConnectionLost = 5
+        InvalidRequest = 3,
+        ConnectionLost = 4,
+        FileAlreadyExists = 5,
+        FileNameEmpty = 6,
+        FileSizeInvalid = 7,
+        ChecksumMismatch = 8   // Hash Server tính được khác với FileHash Client gửi
     }
 }
