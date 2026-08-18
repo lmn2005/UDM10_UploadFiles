@@ -64,8 +64,7 @@ namespace UDM10.Server
                 };
                 await ProtocolWriter.WriteMetadataAsync(stream, readyResponse, cancellationToken);
 
-                string savedPath = await _storageService.SaveFileAsync(fileName, fileSize, stream);
-
+                string savedPath = await _storageService.SaveFileAsync(fileName, fileSize, request.FileHash, stream);
                 var completedResponse = new UploadResponse
                 {
                     RequestId = request.RequestId,
@@ -76,6 +75,24 @@ namespace UDM10.Server
                 await ProtocolWriter.WriteMetadataAsync(stream, completedResponse, cancellationToken);
 
                 _logger.LogInfo($"[{clientEndPoint}] Upload completed: {savedPath}");
+            }
+            catch (ChecksumMismatchException ex)
+            {
+                _logger.LogError($"[{clientEndPoint}] Checksum mismatch: {ex.Message}");
+                try
+                {
+                    if (_client.Connected)
+                    {
+                        var errorResponse = new UploadResponse
+                        {
+                            Status = UploadStatus.Error,
+                            Error = ErrorCode.ChecksumMismatch,
+                            Message = ex.Message
+                        };
+                        await ProtocolWriter.WriteMetadataAsync(_client.GetStream(), errorResponse, cancellationToken);
+                    }
+                }
+                catch { }
             }
             catch (Exception ex)
             {

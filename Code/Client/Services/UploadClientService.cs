@@ -53,11 +53,12 @@ namespace UDM10.Client.Services
                 client.SendTimeout = _settings.Network.ReceiveTimeoutMs;
 
                 await using NetworkStream networkStream = client.GetStream();
-
+                string fileHash = await ChunkedFileSender.ComputeHashAsync(filePath, cancellationToken);
                 UploadRequest request = new()
                 {
                     FileName = fileInfo.Name,
-                    FileSize = fileInfo.Length
+                    FileSize = fileInfo.Length,
+                    FileHash = fileHash
                 };
 
                 await ProtocolWriter.WriteMetadataAsync(networkStream, request, cancellationToken);
@@ -83,16 +84,11 @@ namespace UDM10.Client.Services
                 });
 
                 int chunkSize = _settings.Upload.ChunkSizeBytes > 0 ? _settings.Upload.ChunkSizeBytes : 8192;
-                byte[] buffer = new byte[chunkSize];
                 long totalSent = 0;
                 Stopwatch stopwatch = Stopwatch.StartNew();
 
-                await using FileStream fileStream = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, chunkSize, true);
-
-                int bytesRead;
-                while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)) > 0)
+                await ChunkedFileSender.SendFileAsync(networkStream, filePath, chunkSize, bytesRead =>
                 {
-                    await networkStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
                     totalSent += bytesRead;
 
                     double percentComplete = fileInfo.Length == 0
@@ -107,7 +103,7 @@ namespace UDM10.Client.Services
                         Status = UploadItemStatus.Uploading,
                         Message = "Đang gửi file..."
                     });
-                }
+                }, cancellationToken);
 
                 if (fileInfo.Length == 0)
                 {
@@ -118,8 +114,6 @@ namespace UDM10.Client.Services
                         Message = "Đang chờ Server xác nhận..."
                     });
                 }
-
-                await networkStream.FlushAsync(cancellationToken);
 
                 var finalResponse = await ReadResponseAsync(networkStream, cancellationToken);
                 if (finalResponse?.Status == UploadStatus.Completed)
