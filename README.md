@@ -11,12 +11,11 @@
 
 | STT | MSSV | Họ và tên | Vai trò |
 |---:|---|---|---|
-| 1 | 095205005482| Lê Văn Nhựt | TODO |
-| 2 | 075205019210 | Phạm Anh Tuấn | TODO |
-| 3 | 087205010642 | Nguyễn Tấn Hiệp | TODO |
-| 4 | 054206006612| Huỳnh Việt Tiến | TODO |
-| 5 | 051206006174 | Huỳnh Anh Kiệt | TODO |
-| 6 | 045205006605 | Võ Nhật Linh | TODO |
+| 1 | 095205005482| Lê Văn Nhựt | Leader |
+| 2 | 075205019210 | Phạm Anh Tuấn | Member |
+| 3 | 087205010642 | Nguyễn Tấn Hiệp | Member |
+| 4 | 051206006174 | Huỳnh Anh Kiệt | Member |
+| 5 | 045205006605 | Võ Nhật Linh | Member |
 
 ## Kiến trúc hệ thống
 

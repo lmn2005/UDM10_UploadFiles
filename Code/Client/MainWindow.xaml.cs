@@ -1,17 +1,17 @@
-using System.Collections.ObjectModel;
+using System.Net;
 using System.Windows;
-using Microsoft.Win32;
+using System.Windows.Controls;
 
 namespace UDM10.Client
 {
     public partial class MainWindow : Window
     {
-        public ObservableCollection<UploadItemViewModel> FileList { get; set; } = new();
+        private readonly MainViewModel _viewModel = new();
 
         public MainWindow()
         {
             InitializeComponent();
-            FileListView.ItemsSource = FileList;
+            FileListView.ItemsSource = _viewModel.FileList;
         }
 
         private void DropArea_DragEnter(object sender, DragEventArgs e)
@@ -21,22 +21,53 @@ namespace UDM10.Client
         }
 
         private void DropArea_Drop(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetData(DataFormats.FileDrop) is string[] paths)
-                AddFiles(paths);
-        }
+            => _viewModel.AddFilesFromDrop(e.Data);
 
         private void BtnChooseFile_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new OpenFileDialog { Multiselect = true };
-            if (dialog.ShowDialog() == true)
-                AddFiles(dialog.FileNames);
+            if (TryApplyServerEndpoint())
+            {
+                _viewModel.AddFilesFromDialog();
+            }
         }
 
-        private void AddFiles(string[] paths)
+        private void BtnCancel_Click(object sender, RoutedEventArgs e)
         {
-            foreach (var path in paths)
-                FileList.Add(new UploadItemViewModel(path));
+            if (sender is Button btn && btn.Tag is UploadItemViewModel item)
+                _viewModel.CancelFile(item);
+        }
+
+        private void BtnRetry_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is UploadItemViewModel item)
+                _viewModel.RetryFile(item);
+        }
+
+        private bool TryApplyServerEndpoint()
+        {
+            string serverIp = TxtServerIp.Text.Trim();
+            if (!IPAddress.TryParse(serverIp, out _))
+            {
+                MessageBox.Show(
+                    "Server IP không hợp lệ.",
+                    "Cấu hình kết nối",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return false;
+            }
+
+            if (!int.TryParse(TxtServerPort.Text.Trim(), out int serverPort) || serverPort < 1 || serverPort > 65535)
+            {
+                MessageBox.Show(
+                    "Port phải là số nguyên từ 1 đến 65535.",
+                    "Cấu hình kết nối",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return false;
+            }
+
+            _viewModel.UpdateServerEndpoint(serverIp, serverPort);
+            return true;
         }
     }
 }

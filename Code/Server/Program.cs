@@ -9,6 +9,7 @@ namespace UDM10.Server
     {
         static async Task Main(string[] args)
         {
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
             Console.WriteLine("=== UDM10 SERVER STARTING ===");
             int port = 9000;
 

@@ -37,15 +37,22 @@ namespace UDM10.Server
 
                 while (_isRunning)
                 {
-                    TcpClient client = await _listener.AcceptTcpClientAsync();
-                    string clientEndPoint = client.Client.RemoteEndPoint?.ToString() ?? "Unknown IP";
+                    try
+                    {
+                        TcpClient client = await _listener.AcceptTcpClientAsync();
+                        string clientEndPoint = client.Client.RemoteEndPoint?.ToString() ?? "Unknown IP";
 
-                    _logger.LogInfo($"New client connected: {clientEndPoint}");
-                    Console.WriteLine($"\nNew client connected: {client.Client.RemoteEndPoint}");
+                        _logger.LogInfo($"New client connected: {clientEndPoint}");
+                        Console.WriteLine($"\nNew client connected: {client.Client.RemoteEndPoint}");
 
-                    ClientConnectionHandler handler = new ClientConnectionHandler(client, _logger, _storageService);
+                        ClientConnectionHandler handler = new ClientConnectionHandler(client, _logger, _storageService);
 
-                    _ = handler.HandleAsync();
+                        _ = handler.HandleAsync();
+                    }
+                    catch (Exception ex) 
+                    {
+                        _logger.LogError($"Error receiving new connection: {ex.Message}");
+                    }
                 }
             }
             catch (Exception ex)
