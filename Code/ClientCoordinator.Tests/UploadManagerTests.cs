@@ -17,7 +17,7 @@ public sealed class UploadManagerTests
 
         foreach ((string filePath, RecordingProgress reporter) in progress)
         {
-            manager.EnqueueFile(filePath, reporter);
+            manager.EnqueueFile(filePath, reporter, CancellationToken.None);
         }
 
         await WaitUntilAsync(() => uploadClient.StartedCount == 3);
@@ -40,8 +40,8 @@ public sealed class UploadManagerTests
         var firstProgress = new RecordingProgress();
         var duplicateProgress = new RecordingProgress();
 
-        manager.EnqueueFile(filePath, firstProgress);
-        manager.EnqueueFile(filePath, duplicateProgress);
+        manager.EnqueueFile(filePath, firstProgress, CancellationToken.None);
+        manager.EnqueueFile(filePath, duplicateProgress, CancellationToken.None);
 
         await WaitUntilAsync(() => uploadClient.StartedCount == 1);
         Assert.IsTrue(duplicateProgress.HasStatus(UploadItemStatus.Error));
@@ -59,8 +59,8 @@ public sealed class UploadManagerTests
         var failedProgress = new RecordingProgress();
         var succeedingProgress = new RecordingProgress();
 
-        manager.EnqueueFile(CreateFilePath("failed.txt"), failedProgress);
-        manager.EnqueueFile(CreateFilePath("succeeds.txt"), succeedingProgress);
+        manager.EnqueueFile(CreateFilePath("failed.txt"), failedProgress, CancellationToken.None);
+        manager.EnqueueFile(CreateFilePath("succeeds.txt"), succeedingProgress, CancellationToken.None);
 
         await WaitUntilAsync(() => uploadClient.StartedCount == 1);
         uploadClient.CompleteFailure(uploadClient.StartedPaths[0], "Server không nhận file.");
@@ -70,6 +70,79 @@ public sealed class UploadManagerTests
 
         await WaitUntilAsync(() => failedProgress.HasStatus(UploadItemStatus.Error)
             && succeedingProgress.HasStatus(UploadItemStatus.Completed));
+    }
+
+    [TestMethod]
+    public async Task Cancelling_an_active_upload_releases_its_slot_and_starts_the_next_file()
+    {
+        var uploadClient = new ControlledUploadClient();
+        var manager = new UploadManager(uploadClient, maxConcurrentFiles: 1);
+        using var firstCancellation = new CancellationTokenSource();
+        var firstProgress = new RecordingProgress();
+        var secondProgress = new RecordingProgress();
+
+        manager.EnqueueFile(CreateFilePath("cancelled.txt"), firstProgress, firstCancellation.Token);
+        manager.EnqueueFile(CreateFilePath("next.txt"), secondProgress, CancellationToken.None);
+
+        await WaitUntilAsync(() => uploadClient.StartedCount == 1);
+        firstCancellation.Cancel();
+
+        await WaitUntilAsync(() => firstProgress.HasStatus(UploadItemStatus.Cancelled)
+            && uploadClient.StartedCount == 2);
+        Assert.AreEqual(1, uploadClient.MaxConcurrentUploads);
+
+        uploadClient.CompleteSuccess(uploadClient.StartedPaths[1]);
+        await WaitUntilAsync(() => secondProgress.HasStatus(UploadItemStatus.Completed));
+    }
+
+    [TestMethod]
+    public async Task Cancelling_a_waiting_upload_does_not_open_a_connection_for_it()
+    {
+        var uploadClient = new ControlledUploadClient();
+        var manager = new UploadManager(uploadClient, maxConcurrentFiles: 1);
+        using var waitingCancellation = new CancellationTokenSource();
+        var firstProgress = new RecordingProgress();
+        var waitingProgress = new RecordingProgress();
+        var lastProgress = new RecordingProgress();
+
+        manager.EnqueueFile(CreateFilePath("active.txt"), firstProgress, CancellationToken.None);
+        manager.EnqueueFile(CreateFilePath("waiting.txt"), waitingProgress, waitingCancellation.Token);
+        manager.EnqueueFile(CreateFilePath("last.txt"), lastProgress, CancellationToken.None);
+
+        await WaitUntilAsync(() => uploadClient.StartedCount == 1);
+        waitingCancellation.Cancel();
+        await WaitUntilAsync(() => waitingProgress.HasStatus(UploadItemStatus.Cancelled));
+        Assert.AreEqual(1, uploadClient.StartedCount);
+
+        uploadClient.CompleteSuccess(uploadClient.StartedPaths[0]);
+        await WaitUntilAsync(() => uploadClient.StartedCount == 2);
+        uploadClient.CompleteSuccess(uploadClient.StartedPaths[1]);
+
+        await WaitUntilAsync(() => firstProgress.HasStatus(UploadItemStatus.Completed)
+            && lastProgress.HasStatus(UploadItemStatus.Completed));
+    }
+
+    [TestMethod]
+    public async Task Failed_upload_can_be_retried_from_the_beginning_without_a_duplicate_task()
+    {
+        var uploadClient = new ControlledUploadClient();
+        var manager = new UploadManager(uploadClient, maxConcurrentFiles: 1);
+        string filePath = CreateFilePath("retry.txt");
+        var firstProgress = new RecordingProgress();
+        var retryProgress = new RecordingProgress();
+
+        manager.EnqueueFile(filePath, firstProgress, CancellationToken.None);
+        await WaitUntilAsync(() => uploadClient.StartedCount == 1);
+        uploadClient.CompleteFailure(uploadClient.StartedPaths[0], "Kết nối bị lỗi.");
+        await WaitUntilAsync(() => firstProgress.HasStatus(UploadItemStatus.Error));
+
+        manager.EnqueueFile(filePath, retryProgress, CancellationToken.None);
+        await WaitUntilAsync(() => uploadClient.StartedCount == 2);
+        uploadClient.CompleteSuccess(uploadClient.StartedPaths[1]);
+
+        await WaitUntilAsync(() => retryProgress.HasStatus(UploadItemStatus.Completed));
+        Assert.AreEqual(2, uploadClient.StartedPaths.Count(path => path == filePath));
+        Assert.AreEqual(1, uploadClient.MaxConcurrentUploads);
     }
 
     private static IReadOnlyList<(string FilePath, RecordingProgress Reporter)> CreateProgresses(int count)
@@ -167,6 +240,7 @@ public sealed class UploadManagerTests
                 lock (_syncRoot)
                 {
                     _activeUploads--;
+                    _pendingUploads.Remove(filePath);
                 }
             }
         }

@@ -72,22 +72,19 @@ namespace UDM10.Client
                 item.Message = p.Message ?? "";
             });
 
-            _uploadManager.EnqueueFile(item.FilePath, progress, item.CancellationTokenSource.Token);
+            _uploadManager.EnqueueFile(item.FilePath, progress, item.UploadCancellationToken);
         }
 
         public void CancelFile(UploadItemViewModel item)
         {
             if (!item.CanCancel) return;
-            item.CancellationTokenSource.Cancel();
+            item.RequestCancellation();
         }
 
         public void RetryFile(UploadItemViewModel item)
         {
             if (!item.CanRetry) return;
-            item.CancellationTokenSource = new System.Threading.CancellationTokenSource();
-            item.PercentComplete = 0;
-            item.Status = UploadItemStatus.Waiting;
-            item.Message = "";
+            item.PrepareForRetry();
             StartUpload(item);
         }
 

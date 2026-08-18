@@ -14,7 +14,8 @@ namespace UDM10.Client
 
         // Mỗi file giữ riêng 1 CancellationTokenSource để hủy độc lập,
         // không ảnh hưởng đến các file khác đang chạy song song
-        public CancellationTokenSource CancellationTokenSource { get; set; } = new();
+        public CancellationTokenSource CancellationTokenSource { get; private set; } = new();
+        public CancellationToken UploadCancellationToken => CancellationTokenSource.Token;
 
         private double _percentComplete;
         public double PercentComplete
@@ -51,8 +52,9 @@ namespace UDM10.Client
             set { _message = value; OnPropertyChanged(); }
         }
 
-        // Nút Cancel chỉ bật khi đang Uploading
-        public bool CanCancel => Status == UploadItemStatus.Uploading;
+        // Cho phép hủy cả file đang chờ và file đang upload.
+        public bool CanCancel => (Status == UploadItemStatus.Waiting || Status == UploadItemStatus.Uploading)
+            && !CancellationTokenSource.IsCancellationRequested;
 
         // Nút Retry chỉ bật khi Error hoặc Cancelled
         public bool CanRetry => Status == UploadItemStatus.Error || Status == UploadItemStatus.Cancelled;
@@ -63,6 +65,30 @@ namespace UDM10.Client
             FilePath = filePath;
             FileName = info.Name;
             FileSizeBytes = info.Length;
+        }
+
+        public void RequestCancellation()
+        {
+            if (!CanCancel)
+            {
+                return;
+            }
+
+            CancellationTokenSource.Cancel();
+            Message = "Đang hủy upload...";
+            OnPropertyChanged(nameof(CanCancel));
+        }
+
+        public void PrepareForRetry()
+        {
+            CancellationTokenSource.Dispose();
+            CancellationTokenSource = new CancellationTokenSource();
+            PercentComplete = 0;
+            SpeedKBps = 0;
+            Status = UploadItemStatus.Waiting;
+            Message = "Đang chờ lượt upload lại...";
+            OnPropertyChanged(nameof(CanCancel));
+            OnPropertyChanged(nameof(CanRetry));
         }
 
         private static string FormatSize(long bytes)
