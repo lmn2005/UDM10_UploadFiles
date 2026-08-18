@@ -37,11 +37,13 @@ namespace TestClientConsole
                 Console.WriteLine("Đã kết nối.");
 
                 using NetworkStream stream = client.GetStream();
-
+                string fileHash = await ChunkedFileSender.ComputeHashAsync(filePath, cancellationToken);
+                Console.WriteLine($"Hash tính được: {fileHash}");
                 var request = new UploadRequest
                 {
                     FileName = fileInfo.Name,
-                    FileSize = fileInfo.Length
+                    FileSize = fileInfo.Length,
+                    FileHash = fileHash
                 };
 
                 Console.WriteLine($"Gửi metadata (RequestId: {request.RequestId})...");
@@ -57,14 +59,7 @@ namespace TestClientConsole
                 }
 
                 Console.WriteLine("Đang gửi dữ liệu file...");
-                byte[] buffer = new byte[ProtocolConstants.ChunkSize];
-                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
-                int bytesRead;
-                while ((bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
-                {
-                    await stream.WriteAsync(buffer, 0, bytesRead, cancellationToken);
-                }
-                await stream.FlushAsync(cancellationToken);
+                await ChunkedFileSender.SendFileAsync(stream, filePath, ProtocolConstants.ChunkSize, cancellationToken: cancellationToken);
 
                 var finalResponse = await ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, cancellationToken);
                 Console.WriteLine($"Phản hồi cuối: Status={finalResponse?.Status}, Message={finalResponse?.Message}");

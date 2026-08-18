@@ -27,7 +27,7 @@ namespace UDM10.Server
 
             try
             {
-                using NetworkStream stream = _client.GetStream();
+                 NetworkStream stream = _client.GetStream();
                 _logger.LogInfo($"[{clientEndPoint}] Starting to handle data flow...");
 
                 UploadRequest? request = await ProtocolReader.ReadMetadataAsync<UploadRequest>(stream, cancellationToken);
