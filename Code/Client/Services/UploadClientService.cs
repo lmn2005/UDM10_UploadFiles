@@ -64,14 +64,32 @@ namespace UDM10.Client.Services
                 await ProtocolWriter.WriteMetadataAsync(networkStream, request, cancellationToken);
 
                 var readyResponse = await ReadResponseAsync(networkStream, cancellationToken);
-                if (readyResponse?.Status == UploadStatus.Error)
+
+           
+                if (readyResponse == null)
                 {
-                    return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse?.Message)
+                    return UploadResult.Fail("Server không phản hồi yêu cầu ban đầu.");
+                }
+
+                if (readyResponse.ProtocolVersion != ProtocolConstants.CurrentVersion)
+                {
+                    return UploadResult.Fail($"Lỗi giao thức: Phản hồi dùng bản {readyResponse.ProtocolVersion}, yêu cầu bản {ProtocolConstants.CurrentVersion}");
+                }
+
+                if (readyResponse.RequestId != request.RequestId)
+                {
+                    return UploadResult.Fail("Lỗi giao thức: RequestId không khớp với yêu cầu đã gửi.");
+                }
+            
+
+                if (readyResponse.Status == UploadStatus.Error)
+                {
+                    return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse.Message)
                         ? "Server từ chối nhận file."
                         : readyResponse.Message);
                 }
 
-                if (readyResponse?.Status != UploadStatus.Ready)
+                if (readyResponse.Status != UploadStatus.Ready)
                 {
                     return UploadResult.Fail("Server trả trạng thái không hợp lệ.");
                 }
@@ -83,6 +101,7 @@ namespace UDM10.Client.Services
                     Message = "Server đã sẵn sàng, đang gửi file..."
                 });
 
+             
                 int chunkSize = _settings.Upload.ChunkSizeBytes > 0 ? _settings.Upload.ChunkSizeBytes : 8192;
                 long totalSent = 0;
                 Stopwatch stopwatch = Stopwatch.StartNew();
@@ -116,6 +135,22 @@ namespace UDM10.Client.Services
                 }
 
                 var finalResponse = await ReadResponseAsync(networkStream, cancellationToken);
+
+             
+                if (finalResponse != null)
+                {
+                    if (finalResponse.ProtocolVersion != ProtocolConstants.CurrentVersion)
+                    {
+                        return UploadResult.Fail($"Lỗi giao thức: Phản hồi dùng bản {finalResponse.ProtocolVersion}, yêu cầu bản {ProtocolConstants.CurrentVersion}");
+                    }
+
+                    if (finalResponse.RequestId != request.RequestId)
+                    {
+                        return UploadResult.Fail("Lỗi giao thức: RequestId không khớp với yêu cầu đã gửi.");
+                    }
+                }
+             
+
                 if (finalResponse?.Status == UploadStatus.Completed)
                 {
                     return UploadResult.Success(string.IsNullOrWhiteSpace(finalResponse.Message)
@@ -137,7 +172,8 @@ namespace UDM10.Client.Services
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                return UploadResult.Fail("Đã hủy upload.");
+                // Để UploadManager phân biệt Cancel với Error và giải phóng đúng slot.
+                throw;
             }
             catch (OperationCanceledException)
             {

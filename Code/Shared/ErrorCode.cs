@@ -10,6 +10,8 @@ namespace UDM10.Shared
         FileAlreadyExists = 5,
         FileNameEmpty = 6,
         FileSizeInvalid = 7,
-        ChecksumMismatch = 8   // Hash Server tính được khác với FileHash Client gửi
+        UnsupportedProtocol = 8,
+        InvalidFileName = 9,
+        ChecksumMismatch = 10   // Hash Server tính được khác với FileHash Client gửi
     }
 }

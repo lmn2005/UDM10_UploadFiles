@@ -42,7 +42,9 @@ namespace UDM10.Server
 
                 _logger.LogInfo($"[{clientEndPoint}] Request (ID: {request.RequestId}) upload: {fileName} ({fileSize} bytes)");
 
-                if (!MetadataValidator.IsValid(fileName, fileSize, out ErrorCode validationErrorCode, out string validationError))
+                long maxAllowedSize = 10L * 1024L * 1024L * 1024L;
+
+                if (!MetadataValidator.IsValid(request, maxAllowedSize, out ErrorCode validationErrorCode, out string validationError))
                 {
                     var errorResponse = new UploadResponse
                     {
