@@ -1,23 +1,24 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 namespace UDM10.Server
 {
     public class UploadServer
     {
+        private readonly IConfiguration _config;
         private readonly int _port;
         private readonly ServerLogger _logger;
         private readonly FileStorageService _storageService;
         private TcpListener? _listener;
         private bool _isRunning;
 
-        public UploadServer(int port, ServerLogger logger, FileStorageService storageService)
+        public UploadServer(IConfiguration config, ServerLogger logger, FileStorageService storageService)
         {
-            _port = port;
+            _config = config;
+            _port = _config.GetValue<int>("Network:Port", 9000);
             _logger = logger;
             _storageService = storageService;
         }
@@ -26,14 +27,17 @@ namespace UDM10.Server
         {
             try
             {
-                _listener = new TcpListener(IPAddress.Any, _port);
+                string ipString = _config.GetValue<string>("Network:ServerIp", "127.0.0.1") ?? "127.0.0.1";
+                IPAddress ipAddress = IPAddress.Parse(ipString);
+
+                _listener = new TcpListener(ipAddress, _port);
                 _listener.Start();
                 _isRunning = true;
 
                 _logger.LogInfo("Server started successfully!");
-                _logger.LogInfo($"Server is listening on port {_port}");
+                _logger.LogInfo($"Server is listening on {ipAddress}:{_port}");
                 Console.WriteLine("Server started successfully!");
-                Console.WriteLine($"Server is listening on port {_port}");
+                Console.WriteLine($"Server is listening on {ipAddress}:{_port}");
 
                 while (_isRunning)
                 {
@@ -43,13 +47,13 @@ namespace UDM10.Server
                         string clientEndPoint = client.Client.RemoteEndPoint?.ToString() ?? "Unknown IP";
 
                         _logger.LogInfo($"New client connected: {clientEndPoint}");
-                        Console.WriteLine($"\nNew client connected: {client.Client.RemoteEndPoint}");
+                        Console.WriteLine($"\nNew client connected: {clientEndPoint}");
 
-                        ClientConnectionHandler handler = new ClientConnectionHandler(client, _logger, _storageService);
+                        ClientConnectionHandler handler = new ClientConnectionHandler(client, _logger, _storageService, _config);
 
                         _ = handler.HandleAsync();
                     }
-                    catch (Exception ex) 
+                    catch (Exception ex)
                     {
                         _logger.LogError($"Error receiving new connection: {ex.Message}");
                     }
@@ -57,8 +61,8 @@ namespace UDM10.Server
             }
             catch (Exception ex)
             {
-                if (_isRunning) 
-                { 
+                if (_isRunning)
+                {
                     _logger.LogInfo($"[Server Startup Error]: {ex.Message}");
                     Console.WriteLine($"[Server Startup Error]: {ex.Message}");
                 }
