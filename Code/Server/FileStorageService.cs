@@ -23,7 +23,7 @@ namespace UDM10.Server
 
         // Nhận dữ liệu từ 'source', ghi ra file .part theo từng chunk,
         // đủ số byte thì đổi tên thành file thật. Lỗi thì xóa .part.
-        public async Task<string> SaveFileAsync(string fileName, long fileSize, Stream source)
+        public async Task<string> SaveFileAsync(string fileName, long fileSize, string? expectedHash, Stream source)
         {
             string finalPath = _nameResolver.GetAvailablePath(fileName);
 
@@ -31,7 +31,7 @@ namespace UDM10.Server
 
             try
             {
-                string savedPath = await _tempFileManager.ReceiveToFileAsync(finalPath, fileSize, source);
+                string savedPath = await _tempFileManager.ReceiveToFileAsync(finalPath, fileSize, expectedHash, source);
                 _logger.LogInfo($"Nhận file '{fileName}' thành công, lưu tại '{savedPath}'.");
                 return savedPath;
             }

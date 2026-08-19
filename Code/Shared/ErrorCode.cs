@@ -8,10 +8,10 @@ namespace UDM10.Shared
         InvalidRequest = 3,
         ConnectionLost = 4,
         FileAlreadyExists = 5,
-        FileNameEmpty = 6,     
+        FileNameEmpty = 6,
         FileSizeInvalid = 7,
-        UnsupportedProtocol = 8, 
-        InvalidFileName = 9,     
-        ChecksumMismatch = 10
+        UnsupportedProtocol = 8,
+        InvalidFileName = 9,
+        ChecksumMismatch = 10   // Hash Server tính được khác với FileHash Client gửi
     }
 }
