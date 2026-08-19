@@ -1,12 +1,18 @@
+using System;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace UDM10.Shared
 {
     public static class ProtocolReader
     {
+        
+        private const int MaxMetadataLength = 8192;
+
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNameCaseInsensitive = true
@@ -17,9 +23,10 @@ namespace UDM10.Shared
             byte[] lengthBuffer = await ReadExactBytesAsync(stream, 4, cancellationToken);
             int metadataLength = BitConverter.ToInt32(lengthBuffer, 0);
 
-            if (metadataLength <= 0)
+          
+            if (metadataLength <= 0 || metadataLength > MaxMetadataLength)
             {
-                throw new InvalidDataException("Metadata không hợp lệ.");
+                throw new InvalidDataException($"Metadata length không hợp lệ: {metadataLength} bytes. (Cho phép: > 0 và <= {MaxMetadataLength} bytes)");
             }
 
             byte[] metadataBytes = await ReadExactBytesAsync(stream, metadataLength, cancellationToken);
