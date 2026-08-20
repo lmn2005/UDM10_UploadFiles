@@ -35,5 +35,7 @@ namespace UDM10.Client
                 }
             });
         }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

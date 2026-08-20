@@ -11,13 +11,18 @@ namespace TestClientConsole
     {
         static async Task Main(string[] args)
         {
-            string serverIp = "127.0.0.1";
-            int port = 9000;
+            string serverIp = args.Length > 1 ? args[1] : "127.0.0.1";
+            int port = args.Length > 2 && int.TryParse(args[2], out int configuredPort)
+                && configuredPort is >= 1 and <= 65535
+                    ? configuredPort
+                    : 9000;
             CancellationToken cancellationToken = CancellationToken.None;
 
             string filePath = args.Length > 0
                 ? args[0]
                 : Path.Combine(AppContext.BaseDirectory, "sample_test.txt");
+
+            Console.WriteLine("Cú pháp: dotnet run --project Code/TestClientConsole -- <file> <server-ip> <port>");
 
             if (!File.Exists(filePath))
             {

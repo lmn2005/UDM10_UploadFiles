@@ -25,6 +25,7 @@
     <Compile Include="..\Client\UploadManager.cs" Link="Source\UploadManager.cs" />
     <Compile Include="..\Client\UploadProgress.cs" Link="Source\UploadProgress.cs" />
     <Compile Include="..\Client\UploadQueueService.cs" Link="Source\UploadQueueService.cs" />
+    <Compile Include="..\Client\UploadStatistics.cs" Link="Source\UploadStatistics.cs" />
     <Compile Include="..\Client\Services\ClientSettings.cs" Link="Source\Services\ClientSettings.cs" />
     <Compile Include="..\Client\Services\IUploadClient.cs" Link="Source\Services\IUploadClient.cs" />
     <Compile Include="..\Client\Services\UploadClientService.cs" Link="Source\Services\UploadClientService.cs" />

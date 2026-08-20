@@ -3,20 +3,29 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Windows;
+using System.Windows.Threading;
 using UDM10.Client.Services;
 namespace UDM10.Client
 {
-    public class MainViewModel
+    public class MainViewModel : IAsyncDisposable
     {
         public ObservableCollection<UploadItemViewModel> FileList { get; } = new();
+        public UploadStatistics Statistics { get; } = new();
         private readonly FileSelectionService _fileSelectionService = new();
         private readonly ClientSettings _settings;
         private readonly IUploadManager _uploadManager;
+        private readonly DispatcherTimer _statisticsTimer;
 
         public MainViewModel()
         {
             _settings = ClientSettings.Load();
             _uploadManager = new UploadManager(_settings);
+            _statisticsTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(500)
+            };
+            _statisticsTimer.Tick += (_, _) => Statistics.RefreshElapsed();
+            _statisticsTimer.Start();
         }
 
         public string ServerIp => _settings.Network.ServerIp;
@@ -55,9 +64,9 @@ namespace UDM10.Client
                 // Ngăn thêm cùng một file qua chọn file nhiều lần hoặc kéo-thả lại.
                 if (FileList.Any(f => IsSamePath(f.FilePath, path))) continue;
 
-                if (FileList.Any(f => f.FilePath == path)) continue;
                 var item = new UploadItemViewModel(path);
                 FileList.Add(item);
+                Statistics.RegisterFile(item.FilePath, item.FileSizeBytes);
                 StartUpload(item);
             }
         }
@@ -68,8 +77,13 @@ namespace UDM10.Client
             {
                 item.PercentComplete = p.PercentComplete;
                 item.SpeedKBps = p.SpeedKBps;
+                if (p.BytesTransferred.HasValue)
+                {
+                    item.BytesTransferred = p.BytesTransferred.Value;
+                }
                 item.Status = p.Status;
                 item.Message = p.Message ?? "";
+                Statistics.UpdateFile(item.FilePath, p.Status, p.BytesTransferred);
             });
 
             _uploadManager.EnqueueFile(item.FilePath, progress, item.UploadCancellationToken);
@@ -85,7 +99,19 @@ namespace UDM10.Client
         {
             if (!item.CanRetry) return;
             item.PrepareForRetry();
+            Statistics.ResetForRetry(item.FilePath);
             StartUpload(item);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _statisticsTimer.Stop();
+            await _uploadManager.DisposeAsync();
+
+            foreach (UploadItemViewModel item in FileList)
+            {
+                item.Dispose();
+            }
         }
 
         private static bool IsSamePath(string firstPath, string secondPath)
