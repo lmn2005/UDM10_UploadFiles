@@ -2,7 +2,8 @@
 {
     public static class ProtocolConstants
     {
-        public const string CurrentVersion = "v2"; 
-        public const int ChunkSize = 64 * 1024;    
+        public const string CurrentVersion = "V3";
+        public const int MaxMetadataLength = 4096; 
+        public const int DefaultChunkSize = 64 * 1024; 
     }
 }
