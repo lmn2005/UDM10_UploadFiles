@@ -11,7 +11,10 @@ namespace UDM10.Client
         public MainWindow()
         {
             InitializeComponent();
+            DataContext = _viewModel;
             FileListView.ItemsSource = _viewModel.FileList;
+            TxtServerIp.Text = _viewModel.ServerIp;
+            TxtServerPort.Text = _viewModel.ServerPort.ToString();
         }
 
         private void DropArea_DragEnter(object sender, DragEventArgs e)
@@ -21,7 +24,12 @@ namespace UDM10.Client
         }
 
         private void DropArea_Drop(object sender, DragEventArgs e)
-            => _viewModel.AddFilesFromDrop(e.Data);
+        {
+            if (TryApplyServerEndpoint())
+            {
+                _viewModel.AddFilesFromDrop(e.Data);
+            }
+        }
 
         private void BtnChooseFile_Click(object sender, RoutedEventArgs e)
         {
@@ -68,6 +76,11 @@ namespace UDM10.Client
 
             _viewModel.UpdateServerEndpoint(serverIp, serverPort);
             return true;
+        }
+
+        private async void Window_Closed(object? sender, EventArgs e)
+        {
+            await _viewModel.DisposeAsync();
         }
     }
 }

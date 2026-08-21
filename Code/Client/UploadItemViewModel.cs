@@ -5,7 +5,7 @@ using System.Threading;
 
 namespace UDM10.Client
 {
-    public class UploadItemViewModel : INotifyPropertyChanged
+    public class UploadItemViewModel : INotifyPropertyChanged, IDisposable
     {
         public string FileName { get; }
         public string FilePath { get; }
@@ -29,6 +29,13 @@ namespace UDM10.Client
         {
             get => _speedKBps;
             set { _speedKBps = value; OnPropertyChanged(); }
+        }
+
+        private long _bytesTransferred;
+        public long BytesTransferred
+        {
+            get => _bytesTransferred;
+            set { _bytesTransferred = value; OnPropertyChanged(); }
         }
 
         private UploadItemStatus _status = UploadItemStatus.Waiting;
@@ -85,11 +92,14 @@ namespace UDM10.Client
             CancellationTokenSource = new CancellationTokenSource();
             PercentComplete = 0;
             SpeedKBps = 0;
+            BytesTransferred = 0;
             Status = UploadItemStatus.Waiting;
             Message = "Đang chờ lượt upload lại...";
             OnPropertyChanged(nameof(CanCancel));
             OnPropertyChanged(nameof(CanRetry));
         }
+
+        public void Dispose() => CancellationTokenSource.Dispose();
 
         private static string FormatSize(long bytes)
         {

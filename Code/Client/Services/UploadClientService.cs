@@ -39,6 +39,7 @@ namespace UDM10.Client.Services
             {
                 progress?.Report(new UploadProgress
                 {
+                    BytesTransferred = 0,
                     Status = UploadItemStatus.Uploading,
                     Message = "Đang kết nối Server..."
                 });
@@ -97,6 +98,7 @@ namespace UDM10.Client.Services
                 progress?.Report(new UploadProgress
                 {
                     PercentComplete = 0,
+                    BytesTransferred = 0,
                     Status = UploadItemStatus.Uploading,
                     Message = "Server đã sẵn sàng, đang gửi file..."
                 });
@@ -119,6 +121,7 @@ namespace UDM10.Client.Services
                     {
                         PercentComplete = percentComplete,
                         SpeedKBps = totalSent / 1024d / elapsedSeconds,
+                        BytesTransferred = totalSent,
                         Status = UploadItemStatus.Uploading,
                         Message = "Đang gửi file..."
                     });
@@ -129,6 +132,7 @@ namespace UDM10.Client.Services
                     progress?.Report(new UploadProgress
                     {
                         PercentComplete = 100,
+                        BytesTransferred = 0,
                         Status = UploadItemStatus.Uploading,
                         Message = "Đang chờ Server xác nhận..."
                     });
@@ -211,19 +215,19 @@ namespace UDM10.Client.Services
 
         private async Task<UploadResponse?> ReadResponseAsync(NetworkStream stream, CancellationToken cancellationToken)
         {
-            Task<UploadResponse?> responseTask = ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, cancellationToken);
-            Task timeoutTask = Task.Delay(
-                Math.Max(1, _settings.Network.ReceiveTimeoutMs),
-                cancellationToken);
+            using CancellationTokenSource timeoutCts =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(Math.Max(1, _settings.Network.ReceiveTimeoutMs));
 
-            Task completedTask = await Task.WhenAny(responseTask, timeoutTask);
-            if (completedTask != responseTask)
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                return await ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Hủy và await trực tiếp thao tác đọc để không để lại task đọc socket chạy ngầm.
                 throw new TimeoutException();
             }
-
-            return await responseTask;
         }
     }
 }
