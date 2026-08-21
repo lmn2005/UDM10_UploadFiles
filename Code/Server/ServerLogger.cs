@@ -20,6 +20,8 @@ namespace UDM10.Server
 
         public void LogError(string message) => Write("ERROR", message);
 
+        public void LogWarning(string message) => Write("WARNING", message);
+
         private void Write(string level, string message)
         {
             string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{level}] {message}";
