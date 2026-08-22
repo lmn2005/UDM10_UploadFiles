@@ -1,73 +1,30 @@
-﻿using System.IO;
+﻿using UDM10.Shared;
 
-namespace UDM10.Shared
+namespace UDM10.Server
 {
     public static class MetadataValidator
     {
-        
-        public static bool IsValid(UploadRequest request, long maxFileSize, out ErrorCode errorCode, out string errorMessage)
+        public static (bool IsValid, ErrorCode Error, string Message) Validate(UploadRequest request)
         {
             if (request == null)
-            {
-                errorCode = ErrorCode.InvalidRequest;
-                errorMessage = "Request is null.";
-                return false;
-            }
+                return (false, ErrorCode.InvalidMetadata, "Request không tồn tại hoặc sai định dạng JSON.");
 
-       
             if (request.ProtocolVersion != ProtocolConstants.CurrentVersion)
-            {
-                errorCode = ErrorCode.UnsupportedProtocol;
-                errorMessage = $"Unsupported protocol version. Expected {ProtocolConstants.CurrentVersion}.";
-                return false;
-            }
+                return (false, ErrorCode.ProtocolVersionMismatch, $"Sai phiên bản protocol. Server chỉ hỗ trợ {ProtocolConstants.CurrentVersion}.");
 
-           
             if (string.IsNullOrWhiteSpace(request.RequestId))
-            {
-                errorCode = ErrorCode.InvalidRequest;
-                errorMessage = "RequestId cannot be empty.";
-                return false;
-            }
+                return (false, ErrorCode.MissingRequestId, "Thiếu RequestId (UploadId).");
 
-            
+            if (request.Status == UploadStatus.Cancel)
+                return (true, ErrorCode.None, "Valid CANCEL command"); 
+
             if (string.IsNullOrWhiteSpace(request.FileName))
-            {
-                errorCode = ErrorCode.FileNameEmpty;
-                errorMessage = "The file name cannot be empty.";
-                return false;
-            }
+                return (false, ErrorCode.FileNameEmpty, "Tên file không được để trống.");
 
-           
-            if (request.FileName.Contains("..") ||
-                request.FileName.Contains("/") ||
-                request.FileName.Contains("\\") ||
-                request.FileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            {
-                errorCode = ErrorCode.InvalidFileName;
-                errorMessage = "The file name contains invalid characters or path traversal attempts.";
-                return false;
-            }
-
-         
             if (request.FileSize <= 0)
-            {
-                errorCode = ErrorCode.FileSizeInvalid;
-                errorMessage = "The file size is not valid (must be greater than 0 bytes).";
-                return false;
-            }
+                return (false, ErrorCode.FileSizeInvalid, "Kích thước file phải lớn hơn 0.");
 
-        
-            if (request.FileSize > maxFileSize)
-            {
-                errorCode = ErrorCode.FileTooLarge;
-                errorMessage = $"The file size exceeds the maximum allowed limit of {maxFileSize} bytes.";
-                return false;
-            }
-
-            errorCode = ErrorCode.None;
-            errorMessage = string.Empty;
-            return true;
+            return (true, ErrorCode.None, "Valid");
         }
     }
 }

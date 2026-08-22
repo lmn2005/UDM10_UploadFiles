@@ -4,14 +4,14 @@ namespace UDM10.Shared
     {
         None = 0,
         UnknownError = 1,
-        FileTooLarge = 2,
-        InvalidRequest = 3,
-        ConnectionLost = 4,
-        FileAlreadyExists = 5,
-        FileNameEmpty = 6,
-        FileSizeInvalid = 7,
-        UnsupportedProtocol = 8,
-        InvalidFileName = 9,
-        ChecksumMismatch = 10   // Hash Server tính được khác với FileHash Client gửi
+        InvalidMetadata = 2,
+        FileNameEmpty = 3,
+        FileSizeInvalid = 4,
+        ProtocolVersionMismatch = 5,
+        MissingRequestId = 6,
+        ServerBusy = 7,
+        ConnectionLost = 8,
+        StorageError = 9,
+        CancelledByUser = 10
     }
 }
