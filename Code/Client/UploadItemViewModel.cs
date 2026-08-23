@@ -12,6 +12,11 @@ namespace UDM10.Client
         public long FileSizeBytes { get; }
         public string FileSizeText => FormatSize(FileSizeBytes);
 
+        // Rút gọn tên file dài trên giao diện, tránh vỡ layout cột "Tên file"
+        public string FileNameDisplay => FileName.Length > 30
+            ? FileName.Substring(0, 27) + "..."
+            : FileName;
+
         // Mỗi file giữ riêng 1 CancellationTokenSource để hủy độc lập,
         // không ảnh hưởng đến các file khác đang chạy song song
         public CancellationTokenSource CancellationTokenSource { get; private set; } = new();
@@ -28,8 +33,18 @@ namespace UDM10.Client
         public double SpeedKBps
         {
             get => _speedKBps;
-            set { _speedKBps = value; OnPropertyChanged(); }
+            set
+            {
+                _speedKBps = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SpeedText));
+            }
         }
+
+        // Tự động đổi đơn vị: dưới 1024 KB/s hiển thị KB/s, trên đó hiển thị MB/s
+        public string SpeedText => _speedKBps >= 1024
+            ? $"{_speedKBps / 1024.0:F2} MB/s"
+            : $"{_speedKBps:F0} KB/s";
 
         private long _bytesTransferred;
         public long BytesTransferred
