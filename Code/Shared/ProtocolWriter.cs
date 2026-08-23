@@ -8,25 +8,55 @@ namespace UDM10.Shared
 {
     public static class ProtocolWriter
     {
-        public static async Task WriteRequestAsync(Stream stream, UploadRequest request, CancellationToken cancellationToken = default)
+        public static async Task WriteRequestAsync(
+            Stream stream,
+            UploadRequest request,
+            CancellationToken cancellationToken = default)
         {
             string json = JsonSerializer.Serialize(request);
             await WriteMessageAsync(stream, json, cancellationToken);
         }
 
-        public static async Task WriteResponseAsync(Stream stream, UploadResponse response, CancellationToken cancellationToken = default)
+        public static async Task WriteResponseAsync(
+            Stream stream,
+            UploadResponse response,
+            CancellationToken cancellationToken = default)
         {
             string json = JsonSerializer.Serialize(response);
             await WriteMessageAsync(stream, json, cancellationToken);
         }
-
-        private static async Task WriteMessageAsync(Stream stream, string message, CancellationToken cancellationToken)
+        public static async Task WriteMetadataAsync<T>(
+            Stream stream,
+            T message,
+            CancellationToken cancellationToken = default)
         {
-            byte[] data = System.Text.Encoding.UTF8.GetBytes(message);
-            byte[] lengthPrefix = BitConverter.GetBytes(data.Length);
+            string json = JsonSerializer.Serialize(message);
+            await WriteMessageAsync(stream, json, cancellationToken);
+        }
 
-            await stream.WriteAsync(lengthPrefix, 0, lengthPrefix.Length, cancellationToken);
-            await stream.WriteAsync(data, 0, data.Length, cancellationToken);
+        private static async Task WriteMessageAsync(
+            Stream stream,
+            string message,
+            CancellationToken cancellationToken)
+        {
+            byte[] data =
+                System.Text.Encoding.UTF8.GetBytes(message);
+
+            byte[] lengthPrefix =
+                BitConverter.GetBytes(data.Length);
+
+            await stream.WriteAsync(
+                lengthPrefix,
+                0,
+                lengthPrefix.Length,
+                cancellationToken);
+
+            await stream.WriteAsync(
+                data,
+                0,
+                data.Length,
+                cancellationToken);
+
             await stream.FlushAsync(cancellationToken);
         }
     }
