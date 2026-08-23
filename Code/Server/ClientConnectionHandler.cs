@@ -23,13 +23,16 @@ namespace UDM10.Server
             _config = config;
         }
 
-        public async Task HandleAsync()
+        public async Task HandleAsync(CancellationToken serverCancellationToken = default)
         {
             string clientEndPoint = _client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
 
             int receiveTimeoutMs = _config.GetValue<int>("Network:ReceiveTimeoutMs", 60000);
-            using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(receiveTimeoutMs));
-            CancellationToken cancellationToken = cts.Token;
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(receiveTimeoutMs));
+
+            // Kết hợp CancellationToken từ Server (Ctrl+C / Shutdown) và Timeout nội bộ
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(serverCancellationToken, timeoutCts.Token);
+            CancellationToken cancellationToken = linkedCts.Token;
 
             try
             {
@@ -84,9 +87,24 @@ namespace UDM10.Server
 
                 _logger.LogInfo($"[{clientEndPoint}] Upload completed: {savedPath}");
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
-                _logger.LogError($"[{clientEndPoint}] Connection timed out. Client was inactive too long.");
+                if (serverCancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning($"[{clientEndPoint}] Session cancelled due to Server Graceful Shutdown.");
+                }
+                else if (ex.Message == "CLIENT_CANCELLED")
+                {
+                    _logger.LogWarning($"[{clientEndPoint}] Session cancelled explicitly by Client.");
+                }
+                else if (timeoutCts.IsCancellationRequested)
+                {
+                    _logger.LogError($"[{clientEndPoint}] Connection timed out. Client was inactive too long.");
+                }
+                else
+                {
+                    _logger.LogWarning($"[{clientEndPoint}] Upload operation was cancelled.");
+                }
             }
             catch (ChecksumMismatchException ex)
             {
@@ -101,7 +119,7 @@ namespace UDM10.Server
                             Error = ErrorCode.ChecksumMismatch,
                             Message = ex.Message
                         };
-                        await ProtocolWriter.WriteMetadataAsync(_client.GetStream(), errorResponse, cancellationToken);
+                        await ProtocolWriter.WriteMetadataAsync(_client.GetStream(), errorResponse, CancellationToken.None);
                     }
                 }
                 catch { }
@@ -119,7 +137,7 @@ namespace UDM10.Server
                             Error = ErrorCode.UnknownError,
                             Message = ex.Message
                         };
-                        await ProtocolWriter.WriteMetadataAsync(_client.GetStream(), errorResponse, cancellationToken);
+                        await ProtocolWriter.WriteMetadataAsync(_client.GetStream(), errorResponse, CancellationToken.None);
                     }
                 }
                 catch { }

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 
@@ -29,12 +30,24 @@ namespace UDM10.Server
                 return;
             }
 
-            // Khởi tạo các dịch vụ với IConfiguration
             ServerLogger logger = new ServerLogger("Logs/server_log.txt");
             FileStorageService storageService = new FileStorageService(config, logger);
             UploadServer server = new UploadServer(config, logger, storageService);
 
-            await server.StartAsync();
+            using var cts = new CancellationTokenSource();
+
+            // Bắt sự kiện người dùng nhấn Ctrl+C hoặc đóng cửa sổ Console
+            Console.CancelKeyPress += (sender, e) =>
+            {
+                e.Cancel = true;
+                logger.LogWarning("[SHUTDOWN] Ctrl+C signal received. Initiating graceful shutdown...");
+
+                cts.Cancel();
+            };
+
+            await server.StartAsync(cts.Token);
+
+            logger.LogInfo("[SHUTDOWN] Server stopped cleanly. Goodbye!");
         }
     }
 }
