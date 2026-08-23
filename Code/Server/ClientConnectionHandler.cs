@@ -59,7 +59,7 @@ namespace UDM10.Server
                         Error = validationErrorCode,
                         Message = validationError
                     };
-                    await ProtocolWriter.WriteMetadataAsync(stream, errorResponse, cancellationToken);
+                    await ProtocolWriter.WriteResponseAsync(stream, errorResponse, cancellationToken);
                     return;
                 }
 
@@ -70,7 +70,7 @@ namespace UDM10.Server
                     Error = ErrorCode.None,
                     Message = "Ready to receive file chunks"
                 };
-                await ProtocolWriter.WriteMetadataAsync(stream, readyResponse, cancellationToken);
+                await ProtocolWriter.WriteResponseAsync(stream, readyResponse, cancellationToken);
 
                 string savedPath = await _storageService.SaveFileAsync(fileName, fileSize, request.FileHash, stream, cancellationToken);
                 UploadResponse completedResponse = new UploadResponse
@@ -80,7 +80,7 @@ namespace UDM10.Server
                     Error = ErrorCode.None,
                     Message = "File upload successfully."
                 };
-                await ProtocolWriter.WriteMetadataAsync(stream, completedResponse, cancellationToken);
+                await ProtocolWriter.WriteResponseAsync(stream, completedResponse, cancellationToken);
 
                 _logger.LogInfo($"[{clientEndPoint}] Upload completed: {savedPath}");
             }
@@ -101,7 +101,7 @@ namespace UDM10.Server
                             Error = ErrorCode.ChecksumMismatch,
                             Message = ex.Message
                         };
-                        await ProtocolWriter.WriteMetadataAsync(_client.GetStream(), errorResponse, cancellationToken);
+                        await ProtocolWriter.WriteResponseAsync(_client.GetStream(), errorResponse, cancellationToken);
                     }
                 }
                 catch { }
@@ -119,7 +119,7 @@ namespace UDM10.Server
                             Error = ErrorCode.UnknownError,
                             Message = ex.Message
                         };
-                        await ProtocolWriter.WriteMetadataAsync(_client.GetStream(), errorResponse, cancellationToken);
+                        await ProtocolWriter.WriteResponseAsync(_client.GetStream(), errorResponse, cancellationToken);
                     }
                 }
                 catch { }

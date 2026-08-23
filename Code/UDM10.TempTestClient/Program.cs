@@ -25,7 +25,7 @@ namespace UDM10.TempTestClient
                     FileHash = null
                 };
 
-                await ProtocolWriter.WriteMetadataAsync(stream, request);
+                await ProtocolWriter.WriteRequestAsync(stream, request);
                 Console.WriteLine($"[Client] Sent UploadRequest ID: {request.RequestId}");
 
                 // 2. Nhận phản hồi READY từ Server

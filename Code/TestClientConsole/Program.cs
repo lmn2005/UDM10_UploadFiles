@@ -52,7 +52,7 @@ namespace TestClientConsole
                 };
 
                 Console.WriteLine($"Gửi metadata (RequestId: {request.RequestId})...");
-                await ProtocolWriter.WriteMetadataAsync(stream, request, cancellationToken);
+                await ProtocolWriter.WriteRequestAsync(stream, request, cancellationToken);
 
                 var readyResponse = await ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, cancellationToken);
                 Console.WriteLine($"Phản hồi Ready: Status={readyResponse?.Status}, Message={readyResponse?.Message}");

@@ -62,9 +62,11 @@ namespace UDM10.Client.Services
                     FileHash = fileHash
                 };
 
-                await ProtocolWriter.WriteMetadataAsync(networkStream, request, cancellationToken);
+                await ProtocolWriter.WriteRequestAsync(networkStream, request, cancellationToken);
 
-                var readyResponse = await ReadResponseAsync(networkStream, cancellationToken);
+                var readyResponse = await ReadResponseAsync(networkStream, cancellationToken);    
+
+
 
            
                 if (readyResponse == null)
@@ -85,9 +87,9 @@ namespace UDM10.Client.Services
 
                 if (readyResponse.Status == UploadStatus.Error)
                 {
-                    return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse.Message)
+                    return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse.ErrorMessage)
                         ? "Server từ chối nhận file."
-                        : readyResponse.Message);
+                        : readyResponse.ErrorMessage);
                 }
 
                 if (readyResponse.Status != UploadStatus.Ready)
@@ -157,9 +159,9 @@ namespace UDM10.Client.Services
 
                 if (finalResponse?.Status == UploadStatus.Completed)
                 {
-                    return UploadResult.Success(string.IsNullOrWhiteSpace(finalResponse.Message)
+                    return UploadResult.Success(string.IsNullOrWhiteSpace(finalResponse.ErrorMessage)
                         ? $"Upload thành công: {fileInfo.Name}"
-                        : finalResponse.Message);
+                        : finalResponse.ErrorMessage);
                 }
 
                 if (finalResponse is null)
@@ -167,9 +169,9 @@ namespace UDM10.Client.Services
                     return UploadResult.Fail("Server không trả kết quả cuối.");
                 }
 
-                if (!string.IsNullOrWhiteSpace(finalResponse.Message))
+                if (!string.IsNullOrWhiteSpace(finalResponse.ErrorMessage))
                 {
-                    return UploadResult.Fail(finalResponse.Message);
+                    return UploadResult.Fail(finalResponse.ErrorMessage);
                 }
 
                 return UploadResult.Fail("Upload thất bại.");
