@@ -64,7 +64,7 @@ namespace UDM10.Server
                 };
                 await ProtocolWriter.WriteMetadataAsync(stream, readyResponse, cancellationToken);
 
-                string savedPath = await _storageService.SaveFileAsync(fileName, fileSize, stream);
+                string savedPath = await _storageService.SaveFileAsync(fileName, fileSize, stream, request.RequestId.ToString(), clientEndPoint, cancellationToken);
 
                 var completedResponse = new UploadResponse
                 {
