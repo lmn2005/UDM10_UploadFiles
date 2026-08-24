@@ -1,11 +1,10 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace UDM10.Server
 {
-    // Nhận dữ liệu từ một stream, ghi ra file .part theo từng chunk.
-    // Đủ số byte cam kết thì đổi tên thành file chính thức; thiếu hoặc lỗi thì xóa .part.
     public class TemporaryFileManager
     {
         private readonly int _chunkSize;
@@ -15,7 +14,8 @@ namespace UDM10.Server
             _chunkSize = chunkSize > 0 ? chunkSize : 64 * 1024;
         }
 
-        public async Task<string> ReceiveToFileAsync(string finalPath, long expectedSize, Stream source)
+        public async Task<string> ReceiveToFileAsync(
+            string finalPath, long expectedSize, Stream source, CancellationToken cancellationToken = default)
         {
             string partPath = finalPath + ".part";
             long totalWritten = 0;
@@ -27,9 +27,10 @@ namespace UDM10.Server
                 {
                     int bytesRead;
                     while (totalWritten < expectedSize &&
-                           (bytesRead = await source.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                           (bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
                     {
-                        await fileStream.WriteAsync(buffer, 0, bytesRead);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await fileStream.WriteAsync(buffer, 0, bytesRead, cancellationToken);
                         totalWritten += bytesRead;
                     }
                 }
@@ -46,6 +47,8 @@ namespace UDM10.Server
             }
             catch
             {
+                // Bắt cả OperationCanceledException (khi Cancel) lẫn lỗi khác (khi Error) —
+                // cả 2 trường hợp đều phải dọn dẹp file .part
                 if (File.Exists(partPath))
                     File.Delete(partPath);
                 throw;
