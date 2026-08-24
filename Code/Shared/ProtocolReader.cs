@@ -20,6 +20,18 @@ namespace UDM10.Shared
             return string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<UploadResponse>(json);
         }
 
+        // Backwards-compatible generic reader used across the solution
+        public static Task<T> ReadMetadataAsync<T>(Stream stream, CancellationToken cancellationToken = default)
+        {
+            if (typeof(T) == typeof(UploadRequest))
+                return (Task<T>)(object)ReadRequestAsync(stream, cancellationToken);
+
+            if (typeof(T) == typeof(UploadResponse))
+                return (Task<T>)(object)ReadResponseAsync(stream, cancellationToken);
+
+            throw new NotSupportedException("ReadMetadataAsync only supports UploadRequest and UploadResponse types.");
+        }
+
         private static async Task<string> ReadMessageAsync(Stream stream, CancellationToken cancellationToken)
         {
             byte[] lengthBuffer = new byte[4];

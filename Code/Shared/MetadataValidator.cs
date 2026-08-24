@@ -26,5 +26,28 @@ namespace UDM10.Server
 
             return (true, ErrorCode.None, "Valid");
         }
+
+        // Backwards-compatible API expected by other server code
+        public static bool IsValid(UploadRequest request, long maxAllowedSize, out ErrorCode error, out string message)
+        {
+            var result = Validate(request);
+            if (!result.IsValid)
+            {
+                error = result.Error;
+                message = result.Message;
+                return false;
+            }
+
+            if (request.FileSize > maxAllowedSize)
+            {
+                error = ErrorCode.FileSizeInvalid;
+                message = $"File size exceeds the maximum allowed size of {maxAllowedSize} bytes.";
+                return false;
+            }
+
+            error = ErrorCode.None;
+            message = "Valid";
+            return true;
+        }
     }
 }

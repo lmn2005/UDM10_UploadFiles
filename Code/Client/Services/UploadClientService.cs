@@ -63,7 +63,9 @@ namespace UDM10.Client.Services
 
                 await ProtocolWriter.WriteRequestAsync(networkStream, request, cancellationToken);
 
-                var readyResponse = await ReadResponseAsync(networkStream, cancellationToken);
+                var readyResponse = await ReadResponseAsync(networkStream, cancellationToken);    
+
+
 
            
                 if (readyResponse == null)
@@ -157,6 +159,9 @@ namespace UDM10.Client.Services
                 if (finalResponse?.Status == UploadStatus.Completed)
                 {
                     return UploadResult.Success($"Upload thành công: {fileInfo.Name}");
+                    return UploadResult.Success(string.IsNullOrWhiteSpace(finalResponse.ErrorMessage)
+                        ? $"Upload thành công: {fileInfo.Name}"
+                        : finalResponse.ErrorMessage);
                 }
 
                 if (finalResponse is null)

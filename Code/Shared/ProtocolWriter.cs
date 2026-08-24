@@ -20,6 +20,13 @@ namespace UDM10.Shared
             await WriteMessageAsync(stream, json, cancellationToken);
         }
 
+        // Backwards-compatible method name used across the solution
+        public static Task WriteMetadataAsync(Stream stream, UploadRequest request, CancellationToken cancellationToken = default)
+            => WriteRequestAsync(stream, request, cancellationToken);
+
+        public static Task WriteMetadataAsync(Stream stream, UploadResponse response, CancellationToken cancellationToken = default)
+            => WriteResponseAsync(stream, response, cancellationToken);
+
         private static async Task WriteMessageAsync(Stream stream, string message, CancellationToken cancellationToken)
         {
             byte[] data = System.Text.Encoding.UTF8.GetBytes(message);

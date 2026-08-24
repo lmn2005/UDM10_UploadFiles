@@ -12,6 +12,7 @@ namespace UDM10.Shared
         ServerBusy = 7,
         ConnectionLost = 8,
         StorageError = 9,
-        CancelledByUser = 10
+        CancelledByUser = 10,
+        ChecksumMismatch = 11
     }
 }

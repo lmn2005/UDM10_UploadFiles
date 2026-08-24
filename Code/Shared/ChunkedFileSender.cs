@@ -11,11 +11,12 @@ namespace UDM10.Shared
     {
         public static async Task<string> ComputeHashAsync(string filePath, CancellationToken cancellationToken = default)
         {
-            int chunkSize = ProtocolConstants.ChunkSize;
+            int chunkSize = ProtocolConstants.DefaultChunkSize;
             using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             byte[] buffer = new byte[chunkSize];
 
             await using FileStream fileStream = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, chunkSize, true);
+
 
             int bytesRead;
             while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)) > 0)
