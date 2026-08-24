@@ -1,82 +1,147 @@
-﻿using UDM10.Shared;
+﻿using System;
+using System.IO;
+using UDM10.Shared;
 
 namespace UDM10.Server
 {
+    
     public static class MetadataValidator
     {
-        public static (bool IsValid, ErrorCode ErrorCode, string Message)
-            Validate(UploadRequest request, long maxAllowedSize)
+        public static (
+            bool IsValid,
+            ErrorCode ErrorCode,
+            string Message) Validate(
+                UploadRequest? request,
+                long maxAllowedSize)
         {
-            if (request == null)
+            if (request is null)
             {
-                return (
-                    false,
+                return Fail(
                     ErrorCode.InvalidMetadata,
-                    "Request không tồn tại hoặc sai định dạng."
-                );
+                    "Metadata request không tồn tại hoặc không hợp lệ.");
             }
-            if (request.ProtocolVersion != ProtocolConstants.CurrentVersion)
+
+          
+            if (string.IsNullOrWhiteSpace(
+                    request.ProtocolVersion))
             {
-                return (
-                    false,
+                return Fail(
                     ErrorCode.ProtocolVersionMismatch,
-                    $"Sai phiên bản protocol. Server yêu cầu {ProtocolConstants.CurrentVersion}."
-                );
+                    "ProtocolVersion không được để trống.");
             }
-            if (string.IsNullOrWhiteSpace(request.RequestId))
+
+           
+            if (!string.Equals(
+                    request.ProtocolVersion,
+                    ProtocolConstants.CurrentVersion,
+                    StringComparison.Ordinal))
             {
-                return (
-                    false,
-                    ErrorCode.MissingRequestId,
-                    "RequestId không được để trống."
-                );
+                return Fail(
+                    ErrorCode.ProtocolVersionMismatch,
+                    $"ProtocolVersion không được hỗ trợ. " +
+                    $"Server yêu cầu " +
+                    $"{ProtocolConstants.CurrentVersion}.");
             }
+
+            
+            if (string.IsNullOrWhiteSpace(
+                    request.RequestId))
+            {
+                return Fail(
+                    ErrorCode.MissingRequestId,
+                    "RequestId không được để trống.");
+            }
+
+            if (request.RequestId.Length >
+                ProtocolConstants.MaxRequestIdLength)
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "RequestId vượt quá độ dài cho phép.");
+            }
+
+           
             if (request.Status == UploadStatus.Cancel)
             {
                 return (
                     true,
                     ErrorCode.None,
-                    "Request hợp lệ."
-                );
+                    "Yêu cầu CANCEL hợp lệ.");
             }
+
+          
             if (request.Status != UploadStatus.Request &&
                 request.Status != UploadStatus.Retry)
             {
-                return (
-                    false,
+                return Fail(
                     ErrorCode.UnsupportedStatus,
-                    "Status không được hỗ trợ."
-                );
+                    "Status không được hỗ trợ trong Protocol v3.");
             }
-            if (string.IsNullOrWhiteSpace(request.FileName))
+
+            
+            if (string.IsNullOrWhiteSpace(
+                    request.FileName))
             {
-                return (
-                    false,
+                return Fail(
                     ErrorCode.FileNameEmpty,
-                    "Tên file không được để trống."
-                );
+                    "FileName không được để trống.");
             }
+
+            if (request.FileName.Length >
+                ProtocolConstants.MaxFileNameLength)
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "FileName vượt quá độ dài cho phép.");
+            }
+
+           
+            if (Path.GetFileName(request.FileName) !=
+                    request.FileName ||
+                request.FileName.Contains('/') ||
+                request.FileName.Contains('\\'))
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "FileName chỉ được chứa tên file, " +
+                    "không được chứa đường dẫn.");
+            }
+
+           
             if (request.FileSize <= 0)
             {
-                return (
-                    false,
+                return Fail(
                     ErrorCode.FileSizeInvalid,
-                    "Kích thước file phải lớn hơn 0."
-                );
+                    "FileSize phải lớn hơn 0.");
             }
-            if (maxAllowedSize > 0 && request.FileSize > maxAllowedSize)
+
+           
+            if (maxAllowedSize > 0 &&
+                request.FileSize > maxAllowedSize)
             {
-                return (
-                    false,
+                return Fail(
                     ErrorCode.FileSizeInvalid,
-                    "Kích thước file vượt quá giới hạn cho phép."
-                );
+                    $"FileSize vượt quá giới hạn " +
+                    $"{maxAllowedSize} byte.");
             }
+
             return (
                 true,
                 ErrorCode.None,
-                "Request hợp lệ."
-            );
+                "Metadata hợp lệ.");
+        }
+
+        private static (
+            bool IsValid,
+            ErrorCode ErrorCode,
+            string Message) Fail(
+                ErrorCode errorCode,
+                string message)
+        {
+            return (
+                false,
+                errorCode,
+                message);
         }
     }
 }

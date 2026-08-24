@@ -1,13 +1,16 @@
 ﻿using System;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Threading;
 using UDM10.Client.Services;
+
 namespace UDM10.Client
 {
-    public class MainViewModel : IAsyncDisposable
+    public class MainViewModel : IAsyncDisposable, INotifyPropertyChanged
     {
         public ObservableCollection<UploadItemViewModel> FileList { get; } = new();
         public UploadStatistics Statistics { get; } = new();
@@ -15,6 +18,13 @@ namespace UDM10.Client
         private readonly ClientSettings _settings;
         private readonly IUploadManager _uploadManager;
         private readonly DispatcherTimer _statisticsTimer;
+
+        private ConnectionStatus _connectionStatus = ConnectionStatus.Disconnected;
+        public ConnectionStatus ConnectionStatus
+        {
+            get => _connectionStatus;
+            set { _connectionStatus = value; OnPropertyChanged(); }
+        }
 
         public MainViewModel()
         {
@@ -84,6 +94,11 @@ namespace UDM10.Client
                 item.Status = p.Status;
                 item.Message = p.Message ?? "";
                 Statistics.UpdateFile(item.FilePath, p.Status, p.BytesTransferred);
+
+                if (p.Status == UploadItemStatus.Error)
+                    ConnectionStatus = ConnectionStatus.Error;
+                else if (p.Status == UploadItemStatus.Uploading || p.Status == UploadItemStatus.Completed)
+                    ConnectionStatus = ConnectionStatus.Connected;
             });
 
             _uploadManager.EnqueueFile(item.FilePath, progress, item.UploadCancellationToken);
@@ -128,5 +143,9 @@ namespace UDM10.Client
                 return string.Equals(firstPath, secondPath, StringComparison.OrdinalIgnoreCase);
             }
         }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        private void OnPropertyChanged([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }

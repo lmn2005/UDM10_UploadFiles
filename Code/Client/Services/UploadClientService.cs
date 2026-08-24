@@ -18,10 +18,13 @@ namespace UDM10.Client.Services
         {
         }
 
-        internal UploadClientService(ClientSettings settings)
+        internal UploadClientService(
+            ClientSettings settings)
         {
             _settings =
-                settings ?? throw new ArgumentNullException(nameof(settings));
+                settings ??
+                throw new ArgumentNullException(
+                    nameof(settings));
         }
 
         public async Task<UploadResult> UploadFileAsync(
@@ -40,21 +43,28 @@ namespace UDM10.Client.Services
 
             try
             {
-                progress?.Report(new UploadProgress
-                {
-                    BytesTransferred = 0,
-                    Status = UploadItemStatus.Uploading,
-                    Message = "Đang kết nối Server..."
-                });
+                progress?.Report(
+                    new UploadProgress
+                    {
+                        BytesTransferred = 0,
+                        Status =
+                            UploadItemStatus.Uploading,
+                        Message =
+                            "Đang kết nối Server..."
+                    });
 
                 using TcpClient client = new();
 
                 using CancellationTokenSource connectCts =
                     CancellationTokenSource
-                        .CreateLinkedTokenSource(cancellationToken);
+                        .CreateLinkedTokenSource(
+                            cancellationToken);
 
                 connectCts.CancelAfter(
-                    _settings.Network.ConnectTimeoutMs);
+                    Math.Max(
+                        1,
+                        _settings.Network
+                            .ConnectTimeoutMs));
 
                 await client.ConnectAsync(
                     _settings.Network.ServerIp,
@@ -64,10 +74,12 @@ namespace UDM10.Client.Services
                 await using NetworkStream stream =
                     client.GetStream();
 
+               
                 string fileHash =
-                    await ChunkedFileSender.ComputeHashAsync(
-                        filePath,
-                        cancellationToken);
+                    await ChunkedFileSender
+                        .ComputeHashAsync(
+                            filePath,
+                            cancellationToken);
 
                 UploadRequest request = new()
                 {
@@ -90,56 +102,76 @@ namespace UDM10.Client.Services
                         UploadStatus.Request
                 };
 
-                await ProtocolWriter.WriteMetadataAsync(
+              
+                await ProtocolWriter.WriteRequestAsync(
                     stream,
                     request,
                     cancellationToken);
 
+               
                 UploadResponse? readyResponse =
                     await ReadResponseAsync(
                         stream,
                         cancellationToken);
 
-                if (readyResponse == null)
+                if (readyResponse is null)
                 {
                     return UploadResult.Fail(
-                        "Server không phản hồi.");
+                        "Server không phản hồi Ready.");
                 }
 
                 if (!IsValidResponse(
                         readyResponse,
                         request.RequestId,
-                        out string protocolError))
-                {
-                    return UploadResult.Fail(protocolError);
-                }
-
-                if (readyResponse.Status == UploadStatus.Error)
+                        out string readyError))
                 {
                     return UploadResult.Fail(
-                        readyResponse.ErrorMessage ??
-                        "Server từ chối upload.");
+                        readyError);
                 }
 
-                if (readyResponse.Status != UploadStatus.Ready)
+                if (readyResponse.Status ==
+                    UploadStatus.Error)
                 {
                     return UploadResult.Fail(
-                        "Server trả trạng thái không hợp lệ.");
+                        FormatServerError(
+                            readyResponse));
                 }
 
-                progress?.Report(new UploadProgress
+                if (readyResponse.Status !=
+                    UploadStatus.Ready)
                 {
-                    PercentComplete = 0,
-                    BytesTransferred = 0,
-                    Status = UploadItemStatus.Uploading,
-                    Message =
-                        "Server đã sẵn sàng, đang gửi file..."
-                });
+                    return UploadResult.Fail(
+                        $"Server trả trạng thái " +
+                        $"không hợp lệ: " +
+                        $"{readyResponse.Status}.");
+                }
+
+                progress?.Report(
+                    new UploadProgress
+                    {
+                        PercentComplete = 0,
+                        BytesTransferred = 0,
+                        Status =
+                            UploadItemStatus.Uploading,
+                        Message =
+                            "Server đã sẵn sàng, " +
+                            "đang gửi file..."
+                    });
 
                 int chunkSize =
-                    _settings.Upload.ChunkSizeBytes > 0
-                        ? _settings.Upload.ChunkSizeBytes
-                        : ProtocolConstants.DefaultChunkSize;
+                    _settings.Upload
+                        .ChunkSizeBytes > 0
+                        ? _settings.Upload
+                            .ChunkSizeBytes
+                        : ProtocolConstants
+                            .DefaultChunkSize;
+
+                if (chunkSize <= 0)
+                {
+                    chunkSize =
+                        ProtocolConstants
+                            .DefaultChunkSize;
+                }
 
                 long totalSent = 0;
 
@@ -150,9 +182,9 @@ namespace UDM10.Client.Services
                     stream,
                     filePath,
                     chunkSize,
-                    bytesRead =>
+                    bytesSent =>
                     {
-                        totalSent += bytesRead;
+                        totalSent += bytesSent;
 
                         double percent =
                             fileInfo.Length == 0
@@ -164,33 +196,41 @@ namespace UDM10.Client.Services
 
                         double seconds =
                             Math.Max(
-                                stopwatch.Elapsed.TotalSeconds,
+                                stopwatch.Elapsed
+                                    .TotalSeconds,
                                 0.001);
 
                         progress?.Report(
                             new UploadProgress
                             {
-                                PercentComplete = percent,
+                                PercentComplete =
+                                    percent,
+
                                 SpeedKBps =
                                     totalSent /
                                     1024d /
                                     seconds,
+
                                 BytesTransferred =
                                     totalSent,
+
                                 Status =
-                                    UploadItemStatus.Uploading,
+                                    UploadItemStatus
+                                        .Uploading,
+
                                 Message =
                                     "Đang gửi file..."
                             });
                     },
                     cancellationToken);
 
+               
                 UploadResponse? finalResponse =
                     await ReadResponseAsync(
                         stream,
                         cancellationToken);
 
-                if (finalResponse == null)
+                if (finalResponse is null)
                 {
                     return UploadResult.Fail(
                         "Server không trả kết quả cuối.");
@@ -201,38 +241,47 @@ namespace UDM10.Client.Services
                         request.RequestId,
                         out string finalError))
                 {
-                    return UploadResult.Fail(finalError);
+                    return UploadResult.Fail(
+                        finalError);
                 }
 
                 if (finalResponse.Status ==
                     UploadStatus.Completed)
                 {
                     return UploadResult.Success(
-                        finalResponse.ErrorMessage ??
-                        $"Upload thành công: {fileInfo.Name}");
+                        string.IsNullOrWhiteSpace(
+                            finalResponse.ErrorMessage)
+                            ? $"Upload thành công: " +
+                              $"{fileInfo.Name}"
+                            : finalResponse
+                                .ErrorMessage);
                 }
 
                 if (finalResponse.Status ==
                     UploadStatus.Error)
                 {
                     return UploadResult.Fail(
-                        finalResponse.ErrorMessage ??
-                        "Upload thất bại.");
+                        FormatServerError(
+                            finalResponse));
                 }
 
                 return UploadResult.Fail(
-                    "Server trả trạng thái không hợp lệ.");
+                    $"Server trả trạng thái " +
+                    $"không hợp lệ: " +
+                    $"{finalResponse.Status}.");
             }
             catch (OperationCanceledException)
-                when (cancellationToken.IsCancellationRequested)
+                when (cancellationToken
+                    .IsCancellationRequested)
             {
-               
+              
                 throw;
             }
-            catch (SocketException)
+            catch (SocketException ex)
             {
                 return UploadResult.Fail(
-                    "Không kết nối được Server.");
+                    $"Không kết nối được Server: " +
+                    $"{ex.Message}");
             }
             catch (TimeoutException)
             {
@@ -244,20 +293,23 @@ namespace UDM10.Client.Services
                 return UploadResult.Fail(
                     "Không có quyền đọc file.");
             }
-            catch (InvalidDataException)
+            catch (InvalidDataException ex)
             {
                 return UploadResult.Fail(
-                    "Server phản hồi không đúng định dạng.");
+                    $"Protocol không hợp lệ: " +
+                    $"{ex.Message}");
             }
-            catch (EndOfStreamException)
+            catch (EndOfStreamException ex)
             {
                 return UploadResult.Fail(
-                    "Server đóng kết nối trước khi hoàn tất.");
+                    $"Message bị cắt giữa chừng: " +
+                    $"{ex.Message}");
             }
-            catch (IOException)
+            catch (IOException ex)
             {
                 return UploadResult.Fail(
-                    "Mất kết nối trong quá trình upload.");
+                    $"Mất kết nối trong quá trình " +
+                    $"upload: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -271,20 +323,58 @@ namespace UDM10.Client.Services
             string requestId,
             out string error)
         {
-            if (response.ProtocolVersion !=
-                ProtocolConstants.CurrentVersion)
+            if (response is null)
             {
                 error =
-                    $"Sai ProtocolVersion: " +
-                    $"{response.ProtocolVersion}.";
+                    "Response không tồn tại.";
 
                 return false;
             }
 
-            if (response.RequestId != requestId)
+        
+            if (string.IsNullOrWhiteSpace(
+                    response.ProtocolVersion))
             {
                 error =
-                    "RequestId của response không khớp.";
+                    "Response thiếu ProtocolVersion.";
+
+                return false;
+            }
+
+            if (!string.Equals(
+                    response.ProtocolVersion,
+                    ProtocolConstants.CurrentVersion,
+                    StringComparison.Ordinal))
+            {
+                error =
+                    $"Sai ProtocolVersion: " +
+                    $"Server trả " +
+                    $"{response.ProtocolVersion}, " +
+                    $"Client yêu cầu " +
+                    $"{ProtocolConstants.CurrentVersion}.";
+
+                return false;
+            }
+
+          
+            if (string.IsNullOrWhiteSpace(
+                    response.RequestId))
+            {
+                error =
+                    "Response thiếu RequestId.";
+
+                return false;
+            }
+
+            
+            if (!string.Equals(
+                    response.RequestId,
+                    requestId,
+                    StringComparison.Ordinal))
+            {
+                error =
+                    "RequestId của response " +
+                    "không khớp với request hiện tại.";
 
                 return false;
             }
@@ -293,9 +383,10 @@ namespace UDM10.Client.Services
             return true;
         }
 
-        private async Task<UploadResponse?> ReadResponseAsync(
-            NetworkStream stream,
-            CancellationToken cancellationToken)
+        private async Task<UploadResponse?>
+            ReadResponseAsync(
+                NetworkStream stream,
+                CancellationToken cancellationToken)
         {
             using CancellationTokenSource timeoutCts =
                 CancellationTokenSource
@@ -305,20 +396,37 @@ namespace UDM10.Client.Services
             timeoutCts.CancelAfter(
                 Math.Max(
                     1,
-                    _settings.Network.ReceiveTimeoutMs));
+                    _settings.Network
+                        .ReceiveTimeoutMs));
 
             try
             {
                 return await ProtocolReader
-                    .ReadMetadataAsync<UploadResponse>(
+                    .ReadResponseAsync(
                         stream,
                         timeoutCts.Token);
             }
             catch (OperationCanceledException)
-                when (!cancellationToken.IsCancellationRequested)
+                when (!cancellationToken
+                    .IsCancellationRequested)
             {
                 throw new TimeoutException();
             }
+        }
+
+        private static string FormatServerError(
+            UploadResponse response)
+        {
+            string code =
+                response.ErrorCode.ToString();
+
+            string message =
+                string.IsNullOrWhiteSpace(
+                    response.ErrorMessage)
+                    ? "Server từ chối yêu cầu."
+                    : response.ErrorMessage;
+
+            return $"{code}: {message}";
         }
     }
 }

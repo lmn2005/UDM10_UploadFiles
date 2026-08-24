@@ -1,81 +1,74 @@
 using System;
 using System.IO;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace UDM10.Server
 {
-    // Nhận dữ liệu từ một stream, ghi ra file .part theo từng chunk,
-    // đồng thời tính SHA-256 tăng dần. Đủ byte và khớp hash thì đổi tên
-    // thành file chính thức; sai kích thước, bị hủy hoặc sai hash thì xóa .part.
     public class TemporaryFileManager
     {
         private readonly int _chunkSize;
+        private readonly string _uploadsFolder;
 
-        public TemporaryFileManager(int chunkSize)
+        // Constructor nhận cả 2 tham số
+        public TemporaryFileManager(int chunkSize, string uploadsFolder)
         {
-            _chunkSize = chunkSize > 0 ? chunkSize : 64 * 1024;
+            _chunkSize = chunkSize > 0 ? chunkSize : 8192;
+            _uploadsFolder = string.IsNullOrEmpty(uploadsFolder) ? "Uploads" : uploadsFolder;
+            
+            if (!Directory.Exists(_uploadsFolder))
+            {
+                Directory.CreateDirectory(_uploadsFolder);
+            }
         }
 
-        public async Task<string> ReceiveToFileAsync(string finalPath, long expectedSize, string? expectedHash, Stream source, CancellationToken cancellationToken = default)
+        // Constructor dự phòng nếu code cũ chỉ truyền chunkSize
+        public TemporaryFileManager(int chunkSize) : this(chunkSize, "Uploads")
         {
-            string partPath = finalPath + ".part";
-            long totalWritten = 0;
-            var buffer = new byte[_chunkSize];
-            using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        }
+
+        // Constructor dự phòng nếu code cũ chỉ truyền uploadsFolder
+        public TemporaryFileManager(string uploadsFolder) : this(8192, uploadsFolder)
+        {
+        }
+
+        public async Task<string> ReceiveToFileAsync(
+            string finalPath, 
+            long fileSize, 
+            Stream source, 
+            CancellationToken cancellationToken = default)
+        {
+            string tempPath = finalPath + ".part";
 
             try
             {
-                using (var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                // Dùng _chunkSize làm buffer size cho FileStream
+                using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, _chunkSize, true))
                 {
-                    while (totalWritten < expectedSize)
+                    byte[] buffer = new byte[_chunkSize];
+                    long totalBytesRead = 0;
+                    int bytesRead;
+
+                    while ((bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
                     {
-                        // Kiểm tra nếu có tín hiệu Hủy/Timeout từ CancellationToken
-                        cancellationToken.ThrowIfCancellationRequested();
-
-                        int bytesToRead = (int)Math.Min(buffer.Length, expectedSize - totalWritten);
-                        int bytesRead = await source.ReadAsync(buffer, 0, bytesToRead, cancellationToken);
-
-                        // Phát hiện Client ngắt luồng/CANCEL: Luồng trả về 0 byte khi chưa đủ dữ liệu
-                        if (bytesRead == 0)
-                        {
-                            throw new OperationCanceledException("CLIENT_CANCELLED");
-                        }
-
-                        await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-                        hasher.AppendData(buffer, 0, bytesRead);
-                        totalWritten += bytesRead;
+                        await fileStream.WriteAsync(buffer, 0, bytesRead, cancellationToken);
+                        totalBytesRead += bytesRead;
                     }
                 }
 
-                if (totalWritten != expectedSize)
+                if (File.Exists(finalPath))
                 {
-                    if (File.Exists(partPath)) File.Delete(partPath);
-                    throw new IOException(
-                        $"Nhận thiếu dữ liệu: mong đợi {expectedSize} byte, nhận được {totalWritten} byte.");
+                    File.Delete(finalPath);
                 }
 
-                if (!string.IsNullOrEmpty(expectedHash))
-                {
-                    string actualHash = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
-                    if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (File.Exists(partPath)) File.Delete(partPath);
-                        throw new ChecksumMismatchException(
-                            "File nhận được không khớp checksum với file gốc, có thể đã bị lỗi trong quá trình truyền.");
-                    }
-                }
-
-                if (File.Exists(finalPath)) File.Delete(finalPath);
-                File.Move(partPath, finalPath);
+                File.Move(tempPath, finalPath);
                 return finalPath;
             }
-            catch
+            catch (Exception)
             {
-                if (File.Exists(partPath))
+                if (File.Exists(tempPath))
                 {
-                    try { File.Delete(partPath); } catch { }
+                    File.Delete(tempPath);
                 }
                 throw;
             }
