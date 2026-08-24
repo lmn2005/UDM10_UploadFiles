@@ -1,12 +1,13 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace UDM10.Server
 {
     public class FileStorageService
     {
-        private const int ChunkSize = 64 * 1024; // 64 KB
+        private const int ChunkSize = 64 * 1024;
         private readonly string _uploadsFolder;
         private readonly ServerLogger _logger;
         private readonly DuplicateFileNameResolver _nameResolver;
@@ -21,23 +22,34 @@ namespace UDM10.Server
             Directory.CreateDirectory(_uploadsFolder);
         }
 
-        // Nhận dữ liệu từ 'source', ghi ra file .part theo từng chunk,
-        // đủ số byte thì đổi tên thành file thật. Lỗi thì xóa .part.
-        public async Task<string> SaveFileAsync(string fileName, long fileSize, Stream source)
+        public async Task<string> SaveFileAsync(
+            string fileName,
+            long fileSize,
+            Stream source,
+            string requestId,
+            string clientIp,
+            CancellationToken cancellationToken = default)
         {
             string finalPath = _nameResolver.GetAvailablePath(fileName);
 
-            _logger.LogInfo($"Bắt đầu nhận file '{fileName}' ({fileSize} byte).");
+            _logger.LogUploadEvent(UploadLifecycleEvent.Start, requestId, clientIp, fileName, 0);
 
             try
             {
-                string savedPath = await _tempFileManager.ReceiveToFileAsync(finalPath, fileSize, source);
-                _logger.LogInfo($"Nhận file '{fileName}' thành công, lưu tại '{savedPath}'.");
+                string savedPath = await _tempFileManager.ReceiveToFileAsync(
+                    finalPath, fileSize, source, cancellationToken);
+
+                _logger.LogUploadEvent(UploadLifecycleEvent.Completed, requestId, clientIp, fileName, fileSize);
                 return savedPath;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogUploadEvent(UploadLifecycleEvent.Cancel, requestId, clientIp, fileName, 0);
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Lỗi khi nhận file '{fileName}': {ex.Message}");
+                _logger.LogUploadEvent(UploadLifecycleEvent.Error, requestId, clientIp, fileName, 0, ex.Message);
                 throw;
             }
         }
