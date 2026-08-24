@@ -54,15 +54,14 @@ namespace UDM10.Client.Services
                 client.SendTimeout = _settings.Network.ReceiveTimeoutMs;
 
                 await using NetworkStream networkStream = client.GetStream();
-                string fileHash = await ChunkedFileSender.ComputeHashAsync(filePath, cancellationToken);
                 UploadRequest request = new()
                 {
+                    RequestId = Guid.NewGuid().ToString("N"),
                     FileName = fileInfo.Name,
-                    FileSize = fileInfo.Length,
-                    FileHash = fileHash
+                    FileSize = fileInfo.Length
                 };
 
-                await ProtocolWriter.WriteMetadataAsync(networkStream, request, cancellationToken);
+                await ProtocolWriter.WriteRequestAsync(networkStream, request, cancellationToken);
 
                 var readyResponse = await ReadResponseAsync(networkStream, cancellationToken);
 
@@ -85,9 +84,9 @@ namespace UDM10.Client.Services
 
                 if (readyResponse.Status == UploadStatus.Error)
                 {
-                    return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse.Message)
+                    return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse.ErrorMessage)
                         ? "Server từ chối nhận file."
-                        : readyResponse.Message);
+                        : readyResponse.ErrorMessage);
                 }
 
                 if (readyResponse.Status != UploadStatus.Ready)
@@ -157,9 +156,7 @@ namespace UDM10.Client.Services
 
                 if (finalResponse?.Status == UploadStatus.Completed)
                 {
-                    return UploadResult.Success(string.IsNullOrWhiteSpace(finalResponse.Message)
-                        ? $"Upload thành công: {fileInfo.Name}"
-                        : finalResponse.Message);
+                    return UploadResult.Success($"Upload thành công: {fileInfo.Name}");
                 }
 
                 if (finalResponse is null)
@@ -167,9 +164,9 @@ namespace UDM10.Client.Services
                     return UploadResult.Fail("Server không trả kết quả cuối.");
                 }
 
-                if (!string.IsNullOrWhiteSpace(finalResponse.Message))
+                if (!string.IsNullOrWhiteSpace(finalResponse.ErrorMessage))
                 {
-                    return UploadResult.Fail(finalResponse.Message);
+                    return UploadResult.Fail(finalResponse.ErrorMessage);
                 }
 
                 return UploadResult.Fail("Upload thất bại.");
@@ -221,7 +218,7 @@ namespace UDM10.Client.Services
 
             try
             {
-                return await ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, timeoutCts.Token);
+                return await ProtocolReader.ReadResponseAsync(stream, timeoutCts.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {

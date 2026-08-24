@@ -8,10 +8,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UDM10.Server", "Server\UDM1
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UDM10.Shared", "Shared\UDM10.Shared.csproj", "{C3D4E5F6-A7B8-9012-3456-789012CDEFAB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UDM10.ClientCoordinator.Tests", "ClientCoordinator.Tests\UDM10.ClientCoordinator.Tests.csproj", "{D4E5F6A7-B8C9-0123-4567-890123DEFABC}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UDM10.TempTestClient", "UDM10.TempTestClient\UDM10.TempTestClient.csproj", "{98FA3593-E70D-43C2-AD9D-795B25BCD91E}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -30,14 +26,6 @@ Global
 		{C3D4E5F6-A7B8-9012-3456-789012CDEFAB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C3D4E5F6-A7B8-9012-3456-789012CDEFAB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C3D4E5F6-A7B8-9012-3456-789012CDEFAB}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D4E5F6A7-B8C9-0123-4567-890123DEFABC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D4E5F6A7-B8C9-0123-4567-890123DEFABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D4E5F6A7-B8C9-0123-4567-890123DEFABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D4E5F6A7-B8C9-0123-4567-890123DEFABC}.Release|Any CPU.Build.0 = Release|Any CPU
-		{98FA3593-E70D-43C2-AD9D-795B25BCD91E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{98FA3593-E70D-43C2-AD9D-795B25BCD91E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{98FA3593-E70D-43C2-AD9D-795B25BCD91E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{98FA3593-E70D-43C2-AD9D-795B25BCD91E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
