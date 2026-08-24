@@ -1,9 +1,10 @@
 ﻿using System;
+using System.Threading;
 
 namespace UDM10.Client
 {
-    public interface IUploadManager
+    public interface IUploadManager : IAsyncDisposable
     {
-        void EnqueueFile(string filePath, IProgress<UploadProgress> progress);
+        void EnqueueFile(string filePath, IProgress<UploadProgress> progress, CancellationToken cancellationToken);
     }
 }

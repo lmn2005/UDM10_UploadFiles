@@ -22,6 +22,8 @@ namespace UDM10.Server
 
         public void LogError(string message) => Write("ERROR", message);
 
+        public void LogWarning(string message) => Write("WARNING", message);
+
         // Log có cấu trúc cho từng bước vòng đời 1 lượt upload
         public void LogUploadEvent(
             UploadLifecycleEvent lifecycleEvent,

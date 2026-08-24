@@ -4,11 +4,15 @@ namespace UDM10.Shared
     {
         None = 0,
         UnknownError = 1,
-        FileTooLarge = 2,
-        InvalidRequest = 3,
-        ConnectionLost = 4,
-        FileAlreadyExists = 5,
-        FileNameEmpty = 6,     
-        FileSizeInvalid = 7    
+        InvalidMetadata = 2,
+        FileNameEmpty = 3,
+        FileSizeInvalid = 4,
+        ProtocolVersionMismatch = 5,
+        MissingRequestId = 6,
+        ServerBusy = 7,
+        ConnectionLost = 8,
+        StorageError = 9,
+        CancelledByUser = 10,
+        ChecksumMismatch = 11
     }
 }

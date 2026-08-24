@@ -8,49 +8,68 @@ namespace UDM10.Server
     public class TemporaryFileManager
     {
         private readonly int _chunkSize;
+        private readonly string _uploadsFolder;
 
-        public TemporaryFileManager(int chunkSize)
+        // Constructor nhận cả 2 tham số
+        public TemporaryFileManager(int chunkSize, string uploadsFolder)
         {
-            _chunkSize = chunkSize > 0 ? chunkSize : 64 * 1024;
+            _chunkSize = chunkSize > 0 ? chunkSize : 8192;
+            _uploadsFolder = string.IsNullOrEmpty(uploadsFolder) ? "Uploads" : uploadsFolder;
+            
+            if (!Directory.Exists(_uploadsFolder))
+            {
+                Directory.CreateDirectory(_uploadsFolder);
+            }
+        }
+
+        // Constructor dự phòng nếu code cũ chỉ truyền chunkSize
+        public TemporaryFileManager(int chunkSize) : this(chunkSize, "Uploads")
+        {
+        }
+
+        // Constructor dự phòng nếu code cũ chỉ truyền uploadsFolder
+        public TemporaryFileManager(string uploadsFolder) : this(8192, uploadsFolder)
+        {
         }
 
         public async Task<string> ReceiveToFileAsync(
-            string finalPath, long expectedSize, Stream source, CancellationToken cancellationToken = default)
+            string finalPath, 
+            long fileSize, 
+            Stream source, 
+            CancellationToken cancellationToken = default)
         {
-            string partPath = finalPath + ".part";
-            long totalWritten = 0;
-            var buffer = new byte[_chunkSize];
+            string tempPath = finalPath + ".part";
 
             try
             {
-                using (var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write))
+                // Dùng _chunkSize làm buffer size cho FileStream
+                using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, _chunkSize, true))
                 {
+                    byte[] buffer = new byte[_chunkSize];
+                    long totalBytesRead = 0;
                     int bytesRead;
-                    while (totalWritten < expectedSize &&
-                           (bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
+
+                    while ((bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
                         await fileStream.WriteAsync(buffer, 0, bytesRead, cancellationToken);
-                        totalWritten += bytesRead;
+                        totalBytesRead += bytesRead;
                     }
                 }
 
-                if (totalWritten != expectedSize)
+                if (File.Exists(finalPath))
                 {
-                    File.Delete(partPath);
-                    throw new IOException(
-                        $"Nhận thiếu dữ liệu: mong đợi {expectedSize} byte, nhận được {totalWritten} byte.");
+                    File.Delete(finalPath);
                 }
 
-                File.Move(partPath, finalPath);
+                File.Move(tempPath, finalPath);
                 return finalPath;
             }
-            catch
+            catch (Exception)
             {
-                // Bắt cả OperationCanceledException (khi Cancel) lẫn lỗi khác (khi Error) —
-                // cả 2 trường hợp đều phải dọn dẹp file .part
-                if (File.Exists(partPath))
-                    File.Delete(partPath);
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
                 throw;
             }
         }

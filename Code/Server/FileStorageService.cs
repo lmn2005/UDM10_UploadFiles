@@ -2,54 +2,59 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 namespace UDM10.Server
 {
     public class FileStorageService
     {
-        private const int ChunkSize = 64 * 1024;
+        private const int ChunkSize = 64 * 1024; // 64 KB
         private readonly string _uploadsFolder;
         private readonly ServerLogger _logger;
         private readonly DuplicateFileNameResolver _nameResolver;
         private readonly TemporaryFileManager _tempFileManager;
 
-        public FileStorageService(string uploadsFolder, ServerLogger logger)
+        public FileStorageService(
+            IConfiguration config, 
+            ServerLogger logger, 
+            DuplicateFileNameResolver nameResolver = null,
+            TemporaryFileManager tempFileManager = null)
         {
-            _uploadsFolder = uploadsFolder;
+            _uploadsFolder = config.GetValue<string>("Upload:SaveDirectory") ?? "Uploads";
             _logger = logger;
-            _nameResolver = new DuplicateFileNameResolver(_uploadsFolder);
-            _tempFileManager = new TemporaryFileManager(ChunkSize);
-            Directory.CreateDirectory(_uploadsFolder);
+            _nameResolver = nameResolver ?? new DuplicateFileNameResolver(_uploadsFolder);
+            
+            // Khởi tạo TemporaryFileManager với đúng tham số
+            _tempFileManager = tempFileManager ?? new TemporaryFileManager(ChunkSize, _uploadsFolder);
         }
 
+        // Nhận dữ liệu từ 'source', ghi ra file .part theo từng chunk,
+        // đủ số byte thì đổi tên thành file thật. Lỗi thì xóa .part.
         public async Task<string> SaveFileAsync(
-            string fileName,
-            long fileSize,
-            Stream source,
-            string requestId,
-            string clientIp,
+            string fileName, 
+            long fileSize, 
+            Stream source, 
+            string requestId = "", 
+            string clientIp = "", 
             CancellationToken cancellationToken = default)
         {
             string finalPath = _nameResolver.GetAvailablePath(fileName);
-
-            _logger.LogUploadEvent(UploadLifecycleEvent.Start, requestId, clientIp, fileName, 0);
+            _logger.LogInfo($"Bắt đầu nhận file '{fileName}' ({fileSize} byte).");
 
             try
             {
                 string savedPath = await _tempFileManager.ReceiveToFileAsync(
-                    finalPath, fileSize, source, cancellationToken);
+                    finalPath, 
+                    fileSize, 
+                    source, 
+                    cancellationToken);
 
-                _logger.LogUploadEvent(UploadLifecycleEvent.Completed, requestId, clientIp, fileName, fileSize);
+                _logger.LogInfo($"Nhận file '{fileName}' thành công, lưu tại '{savedPath}'.");
                 return savedPath;
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
-                _logger.LogUploadEvent(UploadLifecycleEvent.Cancel, requestId, clientIp, fileName, 0);
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogUploadEvent(UploadLifecycleEvent.Error, requestId, clientIp, fileName, 0, ex.Message);
+                _logger.LogWarning($"[CANCEL] Quá trình tải file '{fileName}' bị hủy: {ex.Message}");
                 throw;
             }
         }
