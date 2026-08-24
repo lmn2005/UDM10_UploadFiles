@@ -54,12 +54,11 @@ namespace UDM10.Client.Services
                 client.SendTimeout = _settings.Network.ReceiveTimeoutMs;
 
                 await using NetworkStream networkStream = client.GetStream();
-                string fileHash = await ChunkedFileSender.ComputeHashAsync(filePath, cancellationToken);
                 UploadRequest request = new()
                 {
+                    RequestId = Guid.NewGuid().ToString("N"),
                     FileName = fileInfo.Name,
-                    FileSize = fileInfo.Length,
-                    FileHash = fileHash
+                    FileSize = fileInfo.Length
                 };
 
                 await ProtocolWriter.WriteRequestAsync(networkStream, request, cancellationToken);
@@ -159,6 +158,7 @@ namespace UDM10.Client.Services
 
                 if (finalResponse?.Status == UploadStatus.Completed)
                 {
+                    return UploadResult.Success($"Upload thành công: {fileInfo.Name}");
                     return UploadResult.Success(string.IsNullOrWhiteSpace(finalResponse.ErrorMessage)
                         ? $"Upload thành công: {fileInfo.Name}"
                         : finalResponse.ErrorMessage);
@@ -223,7 +223,7 @@ namespace UDM10.Client.Services
 
             try
             {
-                return await ProtocolReader.ReadMetadataAsync<UploadResponse>(stream, timeoutCts.Token);
+                return await ProtocolReader.ReadResponseAsync(stream, timeoutCts.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
