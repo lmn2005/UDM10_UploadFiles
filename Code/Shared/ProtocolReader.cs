@@ -1,63 +1,143 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace UDM10.Shared
 {
+   
     public static class ProtocolReader
     {
-        public static async Task<UploadRequest> ReadRequestAsync(Stream stream, CancellationToken cancellationToken = default)
+        public static async Task<T?> ReadMetadataAsync<T>(
+            Stream stream,
+            CancellationToken cancellationToken = default)
         {
-            string json = await ReadMessageAsync(stream, cancellationToken);
-            return string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<UploadRequest>(json);
+            ArgumentNullException.ThrowIfNull(stream);
+
+            string? json = await ReadMessageAsync(
+                stream,
+                cancellationToken);
+
+           
+            if (json is null)
+            {
+                return default;
+            }
+
+            try
+            {
+                return JsonSerializer.Deserialize<T>(json);
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidDataException(
+                    "Metadata JSON không hợp lệ.",
+                    ex);
+            }
         }
 
-        public static async Task<UploadResponse> ReadResponseAsync(Stream stream, CancellationToken cancellationToken = default)
+        public static Task<UploadRequest?> ReadRequestAsync(
+            Stream stream,
+            CancellationToken cancellationToken = default)
         {
-            string json = await ReadMessageAsync(stream, cancellationToken);
-            return string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<UploadResponse>(json);
+            return ReadMetadataAsync<UploadRequest>(
+                stream,
+                cancellationToken);
         }
 
-        // Backwards-compatible generic reader used across the solution
-        public static Task<T> ReadMetadataAsync<T>(Stream stream, CancellationToken cancellationToken = default)
+        public static Task<UploadResponse?> ReadResponseAsync(
+            Stream stream,
+            CancellationToken cancellationToken = default)
         {
-            if (typeof(T) == typeof(UploadRequest))
-                return (Task<T>)(object)ReadRequestAsync(stream, cancellationToken);
-
-            if (typeof(T) == typeof(UploadResponse))
-                return (Task<T>)(object)ReadResponseAsync(stream, cancellationToken);
-
-            throw new NotSupportedException("ReadMetadataAsync only supports UploadRequest and UploadResponse types.");
+            return ReadMetadataAsync<UploadResponse>(
+                stream,
+                cancellationToken);
         }
 
-        private static async Task<string> ReadMessageAsync(Stream stream, CancellationToken cancellationToken)
+        private static async Task<string?> ReadMessageAsync(
+            Stream stream,
+            CancellationToken cancellationToken)
         {
-            byte[] lengthBuffer = new byte[4];
-            int read = await ReadExactAsync(stream, lengthBuffer, 4, cancellationToken);
-            if (read < 4) return null;
+            byte[] lengthBuffer = new byte[sizeof(int)];
 
-            int length = BitConverter.ToInt32(lengthBuffer, 0);
-            if (length <= 0 || length > ProtocolConstants.MaxMetadataLength)
-                throw new InvalidDataException("Kích thước Metadata vượt quá giới hạn hoặc không hợp lệ.");
+            int prefixBytes = await ReadExactAsync(
+                stream,
+                lengthBuffer,
+                cancellationToken);
 
-            byte[] dataBuffer = new byte[length];
-            read = await ReadExactAsync(stream, dataBuffer, length, cancellationToken);
-            if (read < length) return null;
+         
+            if (prefixBytes == 0)
+            {
+                return null;
+            }
 
-            return System.Text.Encoding.UTF8.GetString(dataBuffer);
+          
+            if (prefixBytes != lengthBuffer.Length)
+            {
+                throw new EndOfStreamException(
+                    "Message bị cắt giữa chừng: thiếu length prefix.");
+            }
+
+            int length = BitConverter.ToInt32(
+                lengthBuffer,
+                0);
+
+            if (length <= 0)
+            {
+                throw new InvalidDataException(
+                    "Metadata length phải lớn hơn 0.");
+            }
+
+            if (length > ProtocolConstants.MaxMetadataLength)
+            {
+                throw new InvalidDataException(
+                    $"Metadata vượt quá giới hạn " +
+                    $"{ProtocolConstants.MaxMetadataLength} byte.");
+            }
+
+            byte[] data = new byte[length];
+
+            int payloadBytes = await ReadExactAsync(
+                stream,
+                data,
+                cancellationToken);
+
+            
+            if (payloadBytes != length)
+            {
+                throw new EndOfStreamException(
+                    "Message bị cắt giữa chừng: " +
+                    "thiếu metadata payload.");
+            }
+
+            return Encoding.UTF8.GetString(data);
         }
 
-        private static async Task<int> ReadExactAsync(Stream stream, byte[] buffer, int count, CancellationToken cancellationToken)
+        private static async Task<int> ReadExactAsync(
+            Stream stream,
+            byte[] buffer,
+            CancellationToken cancellationToken)
         {
             int totalRead = 0;
-            while (totalRead < count)
+
+            while (totalRead < buffer.Length)
             {
-                int read = await stream.ReadAsync(buffer, totalRead, count - totalRead, cancellationToken);
-                if (read == 0) break;
+                int read = await stream.ReadAsync(
+                    buffer.AsMemory(
+                        totalRead,
+                        buffer.Length - totalRead),
+                    cancellationToken);
+
+                if (read == 0)
+                {
+                    break;
+                }
+
                 totalRead += read;
             }
+
             return totalRead;
         }
     }

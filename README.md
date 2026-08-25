@@ -1,97 +1,58 @@
-# UDM_10 - Upload nhiều file
+## 3. Giao thức truyền tải (Protocol v3)
 
-## Thông tin đề tài
-- Tên và mã đề tài: UDM_10 - Upload nhiều file
-- Kiến trúc hệ thống: Client-Server qua TCP socket
-- Port mặc định: 9000
-- Giao tiếp: TCP socket thuần, không dùng HTTP/web framework
-- Ngôn ngữ/Công nghệ: C#, .NET 8.0, WPF, Console App
+Protocol v3 kế thừa cơ chế truyền file của Protocol v2 và bổ sung
+cơ chế quản lý phiên upload bằng `RequestId`, xử lý `CANCEL`,
+`RETRY`, chuẩn hóa `ErrorCode` và kiểm tra tính hợp lệ của request.
 
-## Thành viên
+### 3.1. Cấu trúc Request
 
-| STT | MSSV | Họ và tên | Vai trò |
-|---:|---|---|---|
-| 1 | 095205005482| Lê Văn Nhựt | Leader |
-| 2 | 075205019210 | Phạm Anh Tuấn | Member |
-| 3 | 087205010642 | Nguyễn Tấn Hiệp | Member |
-| 4 | 051206006174 | Huỳnh Anh Kiệt | Member |
-| 5 | 045205006605 | Võ Nhật Linh | Member |
+Client gửi `UploadRequest` dưới dạng JSON, gồm các thông tin:
 
-## Kiến trúc hệ thống
+- `ProtocolVersion`: Phiên bản giao thức, hiện tại là `V3`.
+- `RequestId`: Mã định danh duy nhất cho mỗi phiên upload.
+- `FileName`: Tên file cần upload.
+- `FileSize`: Kích thước file.
+- `FileHash`: Hash dùng để kiểm tra tính toàn vẹn.
+- `Status`: Trạng thái của request (`Request`, `Retry` hoặc `Cancel`).
 
-- Client: WPF Application, project `UDM10.Client`
-- Server: Console Application, project `UDM10.Server`
-- Shared: Class Library, project `UDM10.Shared`
-- Cấu hình mạng được đọc từ `appsettings.json`, không hard-code IP/port trong code.
+### 3.2. Validation
 
-## Cấu trúc repository
+Server kiểm tra request trước khi bắt đầu upload:
 
-```text
-UDM10-DoAnMangMayTinh/
-├── Code/
-│   ├── UDM10.sln
-│   ├── Client/
-│   ├── Server/
-│   └── Shared/
-├── DOCX/
-├── Extra/
-├── PPTX/
-├── README.md
-└── .gitignore
-```
+1. Kiểm tra `ProtocolVersion` có đúng `V3`.
+2. Kiểm tra `RequestId` không được rỗng.
+3. Kiểm tra `Status` có được Protocol v3 hỗ trợ.
+4. Kiểm tra `FileName` không rỗng.
+5. Kiểm tra `FileSize` hợp lệ và không vượt quá giới hạn cấu hình.
 
-## Yêu cầu môi trường
+Nếu request không hợp lệ, Server trả về:
 
-- Windows
-- .NET 8.0 SDK
-- Visual Studio 2022
+- `Status = Error`
+- `ErrorCode` tương ứng
+- `ErrorMessage` mô tả nguyên nhân
+- `RequestId` của request nếu đã xác định được.
 
-## Hướng dẫn chạy
+### 3.3. Lifecycle
 
-### Server
-```bash
-dotnet run --project Code/Server
-```
+Luồng upload thông thường:
 
-### Client
-```bash
-dotnet run --project Code/Client
-```
-Hoặc mở `Code/UDM10.sln` bằng Visual Studio 2022 và set `UDM10.Client` làm Startup Project.
 
-## Chức năng
-
-- [ ] Kéo thả nhiều file
-- [ ] Hiển thị danh sách file
-- [ ] Trạng thái riêng từng file
-- [ ] Progress riêng từng file
-- [ ] Tốc độ riêng từng file
-- [ ] Hàng đợi upload
-- [ ] Tối đa 3 file upload đồng thời
-- [ ] File lỗi không dừng file khác
-- [ ] Xử lý file trùng tên trên Server
-- [ ] Timeout và xử lý mất kết nối
-- [ ] Server log
-
-## Kiểm thử
-
-- [ ] Functional test
-- [ ] Dữ liệu không hợp lệ
-- [ ] Mất kết nối
-- [ ] Stress test
-- [ ] Performance test
-
-## Demo
-
-- [ ] Video demo
-- [ ] Slide trong `PPTX/`
-- [ ] Báo cáo trong `DOCX/`
-- [ ] Bằng chứng kiểm thử trong `Extra/`
-
-## Giới hạn
-
-- [ ] Pause upload
-- [ ] Resume upload
-- [ ] Đăng nhập tài khoản
-- [ ] Cloud storage
-- [ ] Upload thư mục
+Client
+  |
+  | Request
+  | ProtocolVersion = V3
+  | RequestId = GUID
+  v
+Server
+  |
+  | Validation
+  |
+  +---- Invalid ----> Error + ErrorCode
+  |
+  +---- Valid ------> Ready
+                         |
+                         v
+                    File Transfer
+                         |
+                         v
+                      Completed

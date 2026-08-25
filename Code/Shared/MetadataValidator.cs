@@ -1,53 +1,147 @@
-﻿using UDM10.Shared;
+﻿using System;
+using System.IO;
+using UDM10.Shared;
 
 namespace UDM10.Server
 {
+    
     public static class MetadataValidator
     {
-        public static (bool IsValid, ErrorCode Error, string Message) Validate(UploadRequest request)
+        public static (
+            bool IsValid,
+            ErrorCode ErrorCode,
+            string Message) Validate(
+                UploadRequest? request,
+                long maxAllowedSize)
         {
-            if (request == null)
-                return (false, ErrorCode.InvalidMetadata, "Request không tồn tại hoặc sai định dạng JSON.");
+            if (request is null)
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "Metadata request không tồn tại hoặc không hợp lệ.");
+            }
 
-            if (request.ProtocolVersion != ProtocolConstants.CurrentVersion)
-                return (false, ErrorCode.ProtocolVersionMismatch, $"Sai phiên bản protocol. Server chỉ hỗ trợ {ProtocolConstants.CurrentVersion}.");
+          
+            if (string.IsNullOrWhiteSpace(
+                    request.ProtocolVersion))
+            {
+                return Fail(
+                    ErrorCode.ProtocolVersionMismatch,
+                    "ProtocolVersion không được để trống.");
+            }
 
-            if (string.IsNullOrWhiteSpace(request.RequestId))
-                return (false, ErrorCode.MissingRequestId, "Thiếu RequestId (UploadId).");
+           
+            if (!string.Equals(
+                    request.ProtocolVersion,
+                    ProtocolConstants.CurrentVersion,
+                    StringComparison.Ordinal))
+            {
+                return Fail(
+                    ErrorCode.ProtocolVersionMismatch,
+                    $"ProtocolVersion không được hỗ trợ. " +
+                    $"Server yêu cầu " +
+                    $"{ProtocolConstants.CurrentVersion}.");
+            }
 
+            
+            if (string.IsNullOrWhiteSpace(
+                    request.RequestId))
+            {
+                return Fail(
+                    ErrorCode.MissingRequestId,
+                    "RequestId không được để trống.");
+            }
+
+            if (request.RequestId.Length >
+                ProtocolConstants.MaxRequestIdLength)
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "RequestId vượt quá độ dài cho phép.");
+            }
+
+           
             if (request.Status == UploadStatus.Cancel)
-                return (true, ErrorCode.None, "Valid CANCEL command"); 
+            {
+                return (
+                    true,
+                    ErrorCode.None,
+                    "Yêu cầu CANCEL hợp lệ.");
+            }
 
-            if (string.IsNullOrWhiteSpace(request.FileName))
-                return (false, ErrorCode.FileNameEmpty, "Tên file không được để trống.");
+          
+            if (request.Status != UploadStatus.Request &&
+                request.Status != UploadStatus.Retry)
+            {
+                return Fail(
+                    ErrorCode.UnsupportedStatus,
+                    "Status không được hỗ trợ trong Protocol v3.");
+            }
 
+            
+            if (string.IsNullOrWhiteSpace(
+                    request.FileName))
+            {
+                return Fail(
+                    ErrorCode.FileNameEmpty,
+                    "FileName không được để trống.");
+            }
+
+            if (request.FileName.Length >
+                ProtocolConstants.MaxFileNameLength)
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "FileName vượt quá độ dài cho phép.");
+            }
+
+           
+            if (Path.GetFileName(request.FileName) !=
+                    request.FileName ||
+                request.FileName.Contains('/') ||
+                request.FileName.Contains('\\'))
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "FileName chỉ được chứa tên file, " +
+                    "không được chứa đường dẫn.");
+            }
+
+           
             if (request.FileSize <= 0)
-                return (false, ErrorCode.FileSizeInvalid, "Kích thước file phải lớn hơn 0.");
+            {
+                return Fail(
+                    ErrorCode.FileSizeInvalid,
+                    "FileSize phải lớn hơn 0.");
+            }
 
-            return (true, ErrorCode.None, "Valid");
+           
+            if (maxAllowedSize > 0 &&
+                request.FileSize > maxAllowedSize)
+            {
+                return Fail(
+                    ErrorCode.FileSizeInvalid,
+                    $"FileSize vượt quá giới hạn " +
+                    $"{maxAllowedSize} byte.");
+            }
+
+            return (
+                true,
+                ErrorCode.None,
+                "Metadata hợp lệ.");
         }
 
-        // Backwards-compatible API expected by other server code
-        public static bool IsValid(UploadRequest request, long maxAllowedSize, out ErrorCode error, out string message)
+        private static (
+            bool IsValid,
+            ErrorCode ErrorCode,
+            string Message) Fail(
+                ErrorCode errorCode,
+                string message)
         {
-            var result = Validate(request);
-            if (!result.IsValid)
-            {
-                error = result.Error;
-                message = result.Message;
-                return false;
-            }
-
-            if (request.FileSize > maxAllowedSize)
-            {
-                error = ErrorCode.FileSizeInvalid;
-                message = $"File size exceeds the maximum allowed size of {maxAllowedSize} bytes.";
-                return false;
-            }
-
-            error = ErrorCode.None;
-            message = "Valid";
-            return true;
+            return (
+                false,
+                errorCode,
+                message);
         }
     }
 }

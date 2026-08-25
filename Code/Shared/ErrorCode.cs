@@ -13,6 +13,7 @@ namespace UDM10.Shared
         ConnectionLost = 8,
         StorageError = 9,
         CancelledByUser = 10,
-        ChecksumMismatch = 11
+        ChecksumMismatch = 11,
+        UnsupportedStatus = 12
     }
 }

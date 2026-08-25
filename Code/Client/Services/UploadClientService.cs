@@ -18,9 +18,13 @@ namespace UDM10.Client.Services
         {
         }
 
-        internal UploadClientService(ClientSettings settings)
+        internal UploadClientService(
+            ClientSettings settings)
         {
-            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _settings =
+                settings ??
+                throw new ArgumentNullException(
+                    nameof(settings));
         }
 
         public async Task<UploadResult> UploadFileAsync(
@@ -28,208 +32,401 @@ namespace UDM10.Client.Services
             IProgress<UploadProgress>? progress = null,
             CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            if (string.IsNullOrWhiteSpace(filePath) ||
+                !File.Exists(filePath))
             {
-                return UploadResult.Fail("File không tồn tại.");
+                return UploadResult.Fail(
+                    "File không tồn tại.");
             }
 
             FileInfo fileInfo = new(filePath);
 
             try
             {
-                progress?.Report(new UploadProgress
-                {
-                    BytesTransferred = 0,
-                    Status = UploadItemStatus.Uploading,
-                    Message = "Đang kết nối Server..."
-                });
+                progress?.Report(
+                    new UploadProgress
+                    {
+                        BytesTransferred = 0,
+                        Status =
+                            UploadItemStatus.Uploading,
+                        Message =
+                            "Đang kết nối Server..."
+                    });
 
                 using TcpClient client = new();
-                using CancellationTokenSource connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                connectCts.CancelAfter(_settings.Network.ConnectTimeoutMs);
 
-                await client.ConnectAsync(_settings.Network.ServerIp, _settings.Network.Port, connectCts.Token);
+                using CancellationTokenSource connectCts =
+                    CancellationTokenSource
+                        .CreateLinkedTokenSource(
+                            cancellationToken);
 
-                client.ReceiveTimeout = _settings.Network.ReceiveTimeoutMs;
-                client.SendTimeout = _settings.Network.ReceiveTimeoutMs;
+                connectCts.CancelAfter(
+                    Math.Max(
+                        1,
+                        _settings.Network
+                            .ConnectTimeoutMs));
 
-                await using NetworkStream networkStream = client.GetStream();
+                await client.ConnectAsync(
+                    _settings.Network.ServerIp,
+                    _settings.Network.Port,
+                    connectCts.Token);
+
+                await using NetworkStream stream =
+                    client.GetStream();
+
+               
+                string fileHash =
+                    await ChunkedFileSender
+                        .ComputeHashAsync(
+                            filePath,
+                            cancellationToken);
+
                 UploadRequest request = new()
                 {
-                    RequestId = Guid.NewGuid().ToString("N"),
-                    FileName = fileInfo.Name,
-                    FileSize = fileInfo.Length
+                    ProtocolVersion =
+                        ProtocolConstants.CurrentVersion,
+
+                    RequestId =
+                        Guid.NewGuid().ToString("N"),
+
+                    FileName =
+                        fileInfo.Name,
+
+                    FileSize =
+                        fileInfo.Length,
+
+                    FileHash =
+                        fileHash,
+
+                    Status =
+                        UploadStatus.Request
                 };
 
-                await ProtocolWriter.WriteRequestAsync(networkStream, request, cancellationToken);
+              
+                await ProtocolWriter.WriteRequestAsync(
+                    stream,
+                    request,
+                    cancellationToken);
 
-                var readyResponse = await ReadResponseAsync(networkStream, cancellationToken);    
+               
+                UploadResponse? readyResponse =
+                    await ReadResponseAsync(
+                        stream,
+                        cancellationToken);
 
-
-
-           
-                if (readyResponse == null)
+                if (readyResponse is null)
                 {
-                    return UploadResult.Fail("Server không phản hồi yêu cầu ban đầu.");
+                    return UploadResult.Fail(
+                        "Server không phản hồi Ready.");
                 }
 
-                if (readyResponse.ProtocolVersion != ProtocolConstants.CurrentVersion)
+                if (!IsValidResponse(
+                        readyResponse,
+                        request.RequestId,
+                        out string readyError))
                 {
-                    return UploadResult.Fail($"Lỗi giao thức: Phản hồi dùng bản {readyResponse.ProtocolVersion}, yêu cầu bản {ProtocolConstants.CurrentVersion}");
+                    return UploadResult.Fail(
+                        readyError);
                 }
 
-                if (readyResponse.RequestId != request.RequestId)
+                if (readyResponse.Status ==
+                    UploadStatus.Error)
                 {
-                    return UploadResult.Fail("Lỗi giao thức: RequestId không khớp với yêu cầu đã gửi.");
-                }
-            
-
-                if (readyResponse.Status == UploadStatus.Error)
-                {
-                    return UploadResult.Fail(string.IsNullOrWhiteSpace(readyResponse.ErrorMessage)
-                        ? "Server từ chối nhận file."
-                        : readyResponse.ErrorMessage);
+                    return UploadResult.Fail(
+                        FormatServerError(
+                            readyResponse));
                 }
 
-                if (readyResponse.Status != UploadStatus.Ready)
+                if (readyResponse.Status !=
+                    UploadStatus.Ready)
                 {
-                    return UploadResult.Fail("Server trả trạng thái không hợp lệ.");
+                    return UploadResult.Fail(
+                        $"Server trả trạng thái " +
+                        $"không hợp lệ: " +
+                        $"{readyResponse.Status}.");
                 }
 
-                progress?.Report(new UploadProgress
-                {
-                    PercentComplete = 0,
-                    BytesTransferred = 0,
-                    Status = UploadItemStatus.Uploading,
-                    Message = "Server đã sẵn sàng, đang gửi file..."
-                });
-
-             
-                int chunkSize = _settings.Upload.ChunkSizeBytes > 0 ? _settings.Upload.ChunkSizeBytes : 8192;
-                long totalSent = 0;
-                Stopwatch stopwatch = Stopwatch.StartNew();
-
-                await ChunkedFileSender.SendFileAsync(networkStream, filePath, chunkSize, bytesRead =>
-                {
-                    totalSent += bytesRead;
-
-                    double percentComplete = fileInfo.Length == 0
-                        ? 100
-                        : Math.Min(100, totalSent * 100d / fileInfo.Length);
-                    double elapsedSeconds = Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001);
-
-                    progress?.Report(new UploadProgress
+                progress?.Report(
+                    new UploadProgress
                     {
-                        PercentComplete = percentComplete,
-                        SpeedKBps = totalSent / 1024d / elapsedSeconds,
-                        BytesTransferred = totalSent,
-                        Status = UploadItemStatus.Uploading,
-                        Message = "Đang gửi file..."
-                    });
-                }, cancellationToken);
-
-                if (fileInfo.Length == 0)
-                {
-                    progress?.Report(new UploadProgress
-                    {
-                        PercentComplete = 100,
+                        PercentComplete = 0,
                         BytesTransferred = 0,
-                        Status = UploadItemStatus.Uploading,
-                        Message = "Đang chờ Server xác nhận..."
+                        Status =
+                            UploadItemStatus.Uploading,
+                        Message =
+                            "Server đã sẵn sàng, " +
+                            "đang gửi file..."
                     });
-                }
 
-                var finalResponse = await ReadResponseAsync(networkStream, cancellationToken);
+                int chunkSize =
+                    _settings.Upload
+                        .ChunkSizeBytes > 0
+                        ? _settings.Upload
+                            .ChunkSizeBytes
+                        : ProtocolConstants
+                            .DefaultChunkSize;
 
-             
-                if (finalResponse != null)
+                if (chunkSize <= 0)
                 {
-                    if (finalResponse.ProtocolVersion != ProtocolConstants.CurrentVersion)
-                    {
-                        return UploadResult.Fail($"Lỗi giao thức: Phản hồi dùng bản {finalResponse.ProtocolVersion}, yêu cầu bản {ProtocolConstants.CurrentVersion}");
-                    }
-
-                    if (finalResponse.RequestId != request.RequestId)
-                    {
-                        return UploadResult.Fail("Lỗi giao thức: RequestId không khớp với yêu cầu đã gửi.");
-                    }
+                    chunkSize =
+                        ProtocolConstants
+                            .DefaultChunkSize;
                 }
-             
 
-                if (finalResponse?.Status == UploadStatus.Completed)
-                {
-                    return UploadResult.Success($"Upload thành công: {fileInfo.Name}");
-                    return UploadResult.Success(string.IsNullOrWhiteSpace(finalResponse.ErrorMessage)
-                        ? $"Upload thành công: {fileInfo.Name}"
-                        : finalResponse.ErrorMessage);
-                }
+                long totalSent = 0;
+
+                Stopwatch stopwatch =
+                    Stopwatch.StartNew();
+
+                await ChunkedFileSender.SendFileAsync(
+                    stream,
+                    filePath,
+                    chunkSize,
+                    bytesSent =>
+                    {
+                        totalSent += bytesSent;
+
+                        double percent =
+                            fileInfo.Length == 0
+                                ? 100
+                                : Math.Min(
+                                    100,
+                                    totalSent * 100d /
+                                    fileInfo.Length);
+
+                        double seconds =
+                            Math.Max(
+                                stopwatch.Elapsed
+                                    .TotalSeconds,
+                                0.001);
+
+                        progress?.Report(
+                            new UploadProgress
+                            {
+                                PercentComplete =
+                                    percent,
+
+                                SpeedKBps =
+                                    totalSent /
+                                    1024d /
+                                    seconds,
+
+                                BytesTransferred =
+                                    totalSent,
+
+                                Status =
+                                    UploadItemStatus
+                                        .Uploading,
+
+                                Message =
+                                    "Đang gửi file..."
+                            });
+                    },
+                    cancellationToken);
+
+               
+                UploadResponse? finalResponse =
+                    await ReadResponseAsync(
+                        stream,
+                        cancellationToken);
 
                 if (finalResponse is null)
                 {
-                    return UploadResult.Fail("Server không trả kết quả cuối.");
+                    return UploadResult.Fail(
+                        "Server không trả kết quả cuối.");
                 }
 
-                if (!string.IsNullOrWhiteSpace(finalResponse.ErrorMessage))
+                if (!IsValidResponse(
+                        finalResponse,
+                        request.RequestId,
+                        out string finalError))
                 {
-                    return UploadResult.Fail(finalResponse.ErrorMessage);
+                    return UploadResult.Fail(
+                        finalError);
                 }
 
-                return UploadResult.Fail("Upload thất bại.");
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                // Để UploadManager phân biệt Cancel với Error và giải phóng đúng slot.
-                throw;
+                if (finalResponse.Status ==
+                    UploadStatus.Completed)
+                {
+                    return UploadResult.Success(
+                        string.IsNullOrWhiteSpace(
+                            finalResponse.ErrorMessage)
+                            ? $"Upload thành công: " +
+                              $"{fileInfo.Name}"
+                            : finalResponse
+                                .ErrorMessage);
+                }
+
+                if (finalResponse.Status ==
+                    UploadStatus.Error)
+                {
+                    return UploadResult.Fail(
+                        FormatServerError(
+                            finalResponse));
+                }
+
+                return UploadResult.Fail(
+                    $"Server trả trạng thái " +
+                    $"không hợp lệ: " +
+                    $"{finalResponse.Status}.");
             }
             catch (OperationCanceledException)
+                when (cancellationToken
+                    .IsCancellationRequested)
             {
-                return UploadResult.Fail("Không kết nối được Server. Kiểm tra Server đã bật và đúng port.");
+              
+                throw;
             }
-            catch (SocketException)
+            catch (SocketException ex)
             {
-                return UploadResult.Fail("Không kết nối được Server. Kiểm tra Server đã bật và đúng port.");
+                return UploadResult.Fail(
+                    $"Không kết nối được Server: " +
+                    $"{ex.Message}");
             }
             catch (TimeoutException)
             {
-                return UploadResult.Fail("Server phản hồi quá thời gian chờ.");
+                return UploadResult.Fail(
+                    "Server phản hồi quá thời gian.");
             }
             catch (UnauthorizedAccessException)
             {
-                return UploadResult.Fail("Không có quyền đọc file.");
+                return UploadResult.Fail(
+                    "Không có quyền đọc file.");
             }
-            catch (InvalidDataException)
+            catch (InvalidDataException ex)
             {
-                return UploadResult.Fail("Server phản hồi không đúng định dạng.");
+                return UploadResult.Fail(
+                    $"Protocol không hợp lệ: " +
+                    $"{ex.Message}");
             }
-            catch (EndOfStreamException)
+            catch (EndOfStreamException ex)
             {
-                return UploadResult.Fail("Server đóng kết nối trước khi trả kết quả.");
+                return UploadResult.Fail(
+                    $"Message bị cắt giữa chừng: " +
+                    $"{ex.Message}");
             }
-            catch (IOException)
+            catch (IOException ex)
             {
-                return UploadResult.Fail("Mất kết nối hoặc không đọc được file.");
+                return UploadResult.Fail(
+                    $"Mất kết nối trong quá trình " +
+                    $"upload: {ex.Message}");
             }
             catch (Exception ex)
             {
-                return UploadResult.Fail($"Upload lỗi: {ex.Message}");
+                return UploadResult.Fail(
+                    $"Upload lỗi: {ex.Message}");
             }
         }
 
-        private async Task<UploadResponse?> ReadResponseAsync(NetworkStream stream, CancellationToken cancellationToken)
+        private static bool IsValidResponse(
+            UploadResponse response,
+            string requestId,
+            out string error)
+        {
+            if (response is null)
+            {
+                error =
+                    "Response không tồn tại.";
+
+                return false;
+            }
+
+        
+            if (string.IsNullOrWhiteSpace(
+                    response.ProtocolVersion))
+            {
+                error =
+                    "Response thiếu ProtocolVersion.";
+
+                return false;
+            }
+
+            if (!string.Equals(
+                    response.ProtocolVersion,
+                    ProtocolConstants.CurrentVersion,
+                    StringComparison.Ordinal))
+            {
+                error =
+                    $"Sai ProtocolVersion: " +
+                    $"Server trả " +
+                    $"{response.ProtocolVersion}, " +
+                    $"Client yêu cầu " +
+                    $"{ProtocolConstants.CurrentVersion}.";
+
+                return false;
+            }
+
+          
+            if (string.IsNullOrWhiteSpace(
+                    response.RequestId))
+            {
+                error =
+                    "Response thiếu RequestId.";
+
+                return false;
+            }
+
+            
+            if (!string.Equals(
+                    response.RequestId,
+                    requestId,
+                    StringComparison.Ordinal))
+            {
+                error =
+                    "RequestId của response " +
+                    "không khớp với request hiện tại.";
+
+                return false;
+            }
+
+            error = string.Empty;
+            return true;
+        }
+
+        private async Task<UploadResponse?>
+            ReadResponseAsync(
+                NetworkStream stream,
+                CancellationToken cancellationToken)
         {
             using CancellationTokenSource timeoutCts =
-                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(Math.Max(1, _settings.Network.ReceiveTimeoutMs));
+                CancellationTokenSource
+                    .CreateLinkedTokenSource(
+                        cancellationToken);
+
+            timeoutCts.CancelAfter(
+                Math.Max(
+                    1,
+                    _settings.Network
+                        .ReceiveTimeoutMs));
 
             try
             {
-                return await ProtocolReader.ReadResponseAsync(stream, timeoutCts.Token);
+                return await ProtocolReader
+                    .ReadResponseAsync(
+                        stream,
+                        timeoutCts.Token);
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException)
+                when (!cancellationToken
+                    .IsCancellationRequested)
             {
-                // Hủy và await trực tiếp thao tác đọc để không để lại task đọc socket chạy ngầm.
                 throw new TimeoutException();
             }
+        }
+
+        private static string FormatServerError(
+            UploadResponse response)
+        {
+            string code =
+                response.ErrorCode.ToString();
+
+            string message =
+                string.IsNullOrWhiteSpace(
+                    response.ErrorMessage)
+                    ? "Server từ chối yêu cầu."
+                    : response.ErrorMessage;
+
+            return $"{code}: {message}";
         }
     }
 }
