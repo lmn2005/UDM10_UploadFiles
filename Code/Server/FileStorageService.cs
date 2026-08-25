@@ -15,15 +15,15 @@ namespace UDM10.Server
         private readonly TemporaryFileManager _tempFileManager;
 
         public FileStorageService(
-            IConfiguration config, 
-            ServerLogger logger, 
-            DuplicateFileNameResolver nameResolver = null,
-            TemporaryFileManager tempFileManager = null)
+            IConfiguration config,
+            ServerLogger logger,
+            DuplicateFileNameResolver? nameResolver = null,
+            TemporaryFileManager? tempFileManager = null)
         {
             _uploadsFolder = config.GetValue<string>("Upload:SaveDirectory") ?? "Uploads";
             _logger = logger;
             _nameResolver = nameResolver ?? new DuplicateFileNameResolver(_uploadsFolder);
-            
+
             // Khởi tạo TemporaryFileManager với đúng tham số
             _tempFileManager = tempFileManager ?? new TemporaryFileManager(ChunkSize, _uploadsFolder);
         }
@@ -31,11 +31,11 @@ namespace UDM10.Server
         // Nhận dữ liệu từ 'source', ghi ra file .part theo từng chunk,
         // đủ số byte thì đổi tên thành file thật. Lỗi thì xóa .part.
         public async Task<string> SaveFileAsync(
-            string fileName, 
-            long fileSize, 
-            Stream source, 
-            string requestId = "", 
-            string clientIp = "", 
+            string fileName,
+            long fileSize,
+            string expectedHash,
+            Stream source,
+            int receiveTimeoutMs,
             CancellationToken cancellationToken = default)
         {
             string finalPath = _nameResolver.GetAvailablePath(fileName);
@@ -44,9 +44,11 @@ namespace UDM10.Server
             try
             {
                 string savedPath = await _tempFileManager.ReceiveToFileAsync(
-                    finalPath, 
-                    fileSize, 
-                    source, 
+                    finalPath,
+                    fileSize,
+                    source,
+                    expectedHash,
+                    receiveTimeoutMs,
                     cancellationToken);
 
                 _logger.LogInfo($"Nhận file '{fileName}' thành công, lưu tại '{savedPath}'.");
@@ -56,6 +58,10 @@ namespace UDM10.Server
             {
                 _logger.LogWarning($"[CANCEL] Quá trình tải file '{fileName}' bị hủy: {ex.Message}");
                 throw;
+            }
+            finally
+            {
+                _nameResolver.ReleasePath(finalPath);
             }
         }
     }

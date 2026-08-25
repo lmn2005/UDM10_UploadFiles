@@ -7,9 +7,12 @@ using System.Threading.Tasks;
 
 namespace UDM10.Shared
 {
-   
+
     public static class ProtocolReader
     {
+        private static readonly JsonSerializerOptions JsonOptions =
+            new(JsonSerializerDefaults.Web);
+
         public static async Task<T?> ReadMetadataAsync<T>(
             Stream stream,
             CancellationToken cancellationToken = default)
@@ -20,7 +23,7 @@ namespace UDM10.Shared
                 stream,
                 cancellationToken);
 
-           
+
             if (json is null)
             {
                 return default;
@@ -28,7 +31,7 @@ namespace UDM10.Shared
 
             try
             {
-                return JsonSerializer.Deserialize<T>(json);
+                return JsonSerializer.Deserialize<T>(json, JsonOptions);
             }
             catch (JsonException ex)
             {
@@ -67,13 +70,13 @@ namespace UDM10.Shared
                 lengthBuffer,
                 cancellationToken);
 
-         
+
             if (prefixBytes == 0)
             {
                 return null;
             }
 
-          
+
             if (prefixBytes != lengthBuffer.Length)
             {
                 throw new EndOfStreamException(
@@ -104,7 +107,7 @@ namespace UDM10.Shared
                 data,
                 cancellationToken);
 
-            
+
             if (payloadBytes != length)
             {
                 throw new EndOfStreamException(

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
@@ -18,7 +18,8 @@ namespace UDM10.Server
         private bool _isRunning;
 
         // Thêm danh sách để theo dõi các luồng Client đang chạy
-        private readonly ConcurrentBag<Task> _activeTasks = new();
+        private readonly ConcurrentDictionary<long, Task> _activeTasks = new();
+        private long _nextSessionId;
 
         public UploadServer(IConfiguration config, ServerLogger logger, FileStorageService storageService)
         {
@@ -63,12 +64,18 @@ namespace UDM10.Server
 
                             ClientConnectionHandler handler = new ClientConnectionHandler(client, _logger, _storageService, _config);
 
-                            Task sessionTask = Task.Run(async () =>
-                            {
-                                await handler.HandleAsync(cancellationToken);
-                            }, cancellationToken);
-
-                            _activeTasks.Add(sessionTask);
+                            long sessionId = Interlocked.Increment(ref _nextSessionId);
+                            Task sessionTask = handler.HandleAsync(cancellationToken);
+                            _activeTasks[sessionId] = sessionTask;
+                            _ = sessionTask.ContinueWith(
+                                completedTask =>
+                                {
+                                    _activeTasks.TryRemove(
+                                        new KeyValuePair<long, Task>(sessionId, completedTask));
+                                },
+                                CancellationToken.None,
+                                TaskContinuationOptions.ExecuteSynchronously,
+                                TaskScheduler.Default);
                         }
                         catch (OperationCanceledException)
                         {
@@ -87,17 +94,14 @@ namespace UDM10.Server
             }
             catch (Exception ex)
             {
-                if (_isRunning)
-                {
-                    _logger.LogError($"[Server Startup Error]: {ex.Message}");
-                    Console.WriteLine($"[Server Startup Error]: {ex.Message}");
-                }
+                _logger.LogError($"[Server Error]: {ex.Message}");
+                Console.WriteLine($"[Server Error]: {ex.Message}");
             }
             finally
             {
                 _logger.LogWarning("[SHUTDOWN] Waiting for active upload sessions to finish or cleanup...");
 
-                await Task.WhenAll(_activeTasks);
+                await Task.WhenAll(_activeTasks.Values);
 
                 _logger.LogInfo("[SHUTDOWN] All active sessions closed safely. Server fully stopped.");
                 Console.WriteLine("[SHUTDOWN] All active sessions closed safely.");

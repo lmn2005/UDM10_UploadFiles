@@ -6,6 +6,9 @@ namespace UDM10.Server
     public class DuplicateFileNameResolver
     {
         private readonly string _uploadsFolder;
+        private readonly object _syncRoot = new();
+        private readonly HashSet<string> _reservedPaths =
+            new(StringComparer.OrdinalIgnoreCase);
 
         public DuplicateFileNameResolver(string uploadsFolder)
         {
@@ -14,21 +17,37 @@ namespace UDM10.Server
 
         public string GetAvailablePath(string fileName)
         {
-            string path = Path.Combine(_uploadsFolder, fileName);
-            if (!File.Exists(path))
-                return path;
-
-            string name = Path.GetFileNameWithoutExtension(fileName);
-            string ext = Path.GetExtension(fileName);
-            int i = 1;
-            string candidate;
-            do
+            lock (_syncRoot)
             {
-                candidate = Path.Combine(_uploadsFolder, $"{name}_{i}{ext}");
-                i++;
-            } while (File.Exists(candidate));
+                string name = Path.GetFileNameWithoutExtension(fileName);
+                string ext = Path.GetExtension(fileName);
+                int suffix = 0;
 
-            return candidate;
+                while (true)
+                {
+                    string candidateName = suffix == 0
+                        ? fileName
+                        : $"{name}_{suffix}{ext}";
+                    string candidate = Path.Combine(_uploadsFolder, candidateName);
+
+                    if (!File.Exists(candidate) &&
+                        !File.Exists(candidate + ".part") &&
+                        _reservedPaths.Add(candidate))
+                    {
+                        return candidate;
+                    }
+
+                    suffix++;
+                }
+            }
+        }
+
+        public void ReleasePath(string path)
+        {
+            lock (_syncRoot)
+            {
+                _reservedPaths.Remove(path);
+            }
         }
     }
 }

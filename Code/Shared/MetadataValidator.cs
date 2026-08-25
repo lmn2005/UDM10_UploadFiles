@@ -1,10 +1,11 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using UDM10.Shared;
 
 namespace UDM10.Server
 {
-    
+
     public static class MetadataValidator
     {
         public static (
@@ -21,7 +22,7 @@ namespace UDM10.Server
                     "Metadata request không tồn tại hoặc không hợp lệ.");
             }
 
-          
+
             if (string.IsNullOrWhiteSpace(
                     request.ProtocolVersion))
             {
@@ -30,7 +31,7 @@ namespace UDM10.Server
                     "ProtocolVersion không được để trống.");
             }
 
-           
+
             if (!string.Equals(
                     request.ProtocolVersion,
                     ProtocolConstants.CurrentVersion,
@@ -43,7 +44,7 @@ namespace UDM10.Server
                     $"{ProtocolConstants.CurrentVersion}.");
             }
 
-            
+
             if (string.IsNullOrWhiteSpace(
                     request.RequestId))
             {
@@ -60,7 +61,7 @@ namespace UDM10.Server
                     "RequestId vượt quá độ dài cho phép.");
             }
 
-           
+
             if (request.Status == UploadStatus.Cancel)
             {
                 return (
@@ -69,7 +70,7 @@ namespace UDM10.Server
                     "Yêu cầu CANCEL hợp lệ.");
             }
 
-          
+
             if (request.Status != UploadStatus.Request &&
                 request.Status != UploadStatus.Retry)
             {
@@ -78,7 +79,7 @@ namespace UDM10.Server
                     "Status không được hỗ trợ trong Protocol v3.");
             }
 
-            
+
             if (string.IsNullOrWhiteSpace(
                     request.FileName))
             {
@@ -95,7 +96,7 @@ namespace UDM10.Server
                     "FileName vượt quá độ dài cho phép.");
             }
 
-           
+
             if (Path.GetFileName(request.FileName) !=
                     request.FileName ||
                 request.FileName.Contains('/') ||
@@ -107,15 +108,15 @@ namespace UDM10.Server
                     "không được chứa đường dẫn.");
             }
 
-           
-            if (request.FileSize <= 0)
+
+            if (request.FileSize < 0)
             {
                 return Fail(
                     ErrorCode.FileSizeInvalid,
-                    "FileSize phải lớn hơn 0.");
+                    "FileSize không được là số âm.");
             }
 
-           
+
             if (maxAllowedSize > 0 &&
                 request.FileSize > maxAllowedSize)
             {
@@ -123,6 +124,14 @@ namespace UDM10.Server
                     ErrorCode.FileSizeInvalid,
                     $"FileSize vượt quá giới hạn " +
                     $"{maxAllowedSize} byte.");
+            }
+
+            if (request.FileHash.Length != 64 ||
+                !request.FileHash.All(Uri.IsHexDigit))
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "FileHash phải là chuỗi SHA-256 gồm đúng 64 ký tự hex.");
             }
 
             return (

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -15,7 +16,7 @@ namespace UDM10.Server
         {
             _chunkSize = chunkSize > 0 ? chunkSize : 8192;
             _uploadsFolder = string.IsNullOrEmpty(uploadsFolder) ? "Uploads" : uploadsFolder;
-            
+
             if (!Directory.Exists(_uploadsFolder))
             {
                 Directory.CreateDirectory(_uploadsFolder);
@@ -33,9 +34,11 @@ namespace UDM10.Server
         }
 
         public async Task<string> ReceiveToFileAsync(
-            string finalPath, 
-            long fileSize, 
-            Stream source, 
+            string finalPath,
+            long fileSize,
+            Stream source,
+            string expectedHash,
+            int receiveTimeoutMs,
             CancellationToken cancellationToken = default)
         {
             string tempPath = finalPath + ".part";
@@ -43,22 +46,40 @@ namespace UDM10.Server
             try
             {
                 // Dùng _chunkSize làm buffer size cho FileStream
-                using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, _chunkSize, true))
+                using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                await using (var fileStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, _chunkSize, true))
                 {
                     byte[] buffer = new byte[_chunkSize];
                     long totalBytesRead = 0;
-                    int bytesRead;
 
-                    while ((bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
+                    while (totalBytesRead < fileSize)
                     {
+                        int requestedBytes = (int)Math.Min(buffer.Length, fileSize - totalBytesRead);
+                        int bytesRead = await ReadWithIdleTimeoutAsync(
+                            source,
+                            buffer.AsMemory(0, requestedBytes),
+                            receiveTimeoutMs,
+                            cancellationToken);
+
+                        if (bytesRead == 0)
+                        {
+                            throw new EndOfStreamException(
+                                $"File bị cắt giữa chừng: nhận {totalBytesRead}/{fileSize} byte.");
+                        }
+
                         await fileStream.WriteAsync(buffer, 0, bytesRead, cancellationToken);
+                        hasher.AppendData(buffer, 0, bytesRead);
                         totalBytesRead += bytesRead;
                     }
+
+                    await fileStream.FlushAsync(cancellationToken);
                 }
 
-                if (File.Exists(finalPath))
+                string actualHash = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
+                if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
                 {
-                    File.Delete(finalPath);
+                    throw new ChecksumMismatchException(
+                        $"Checksum không khớp. Expected={expectedHash}, Actual={actualHash}.");
                 }
 
                 File.Move(tempPath, finalPath);
@@ -71,6 +92,27 @@ namespace UDM10.Server
                     File.Delete(tempPath);
                 }
                 throw;
+            }
+        }
+
+        private static async Task<int> ReadWithIdleTimeoutAsync(
+            Stream source,
+            Memory<byte> buffer,
+            int receiveTimeoutMs,
+            CancellationToken cancellationToken)
+        {
+            using CancellationTokenSource idleCts =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            idleCts.CancelAfter(Math.Max(1, receiveTimeoutMs));
+
+            try
+            {
+                return await source.ReadAsync(buffer, idleCts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Không nhận được dữ liệu mới trong {receiveTimeoutMs} ms.");
             }
         }
     }
