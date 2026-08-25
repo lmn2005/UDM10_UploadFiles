@@ -32,33 +32,42 @@ namespace UDM10.Server
             string clientEndPoint = _client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
 
             int receiveTimeoutMs = Math.Max(1, _config.GetValue<int>("Network:ReceiveTimeoutMs", 60000));
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(receiveTimeoutMs));
-
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(serverCancellationToken, timeoutCts.Token);
-            CancellationToken cancellationToken = linkedCts.Token;
-
             string requestId = string.Empty;
+            NetworkStream? stream = null;
 
             try
             {
-                using NetworkStream stream = _client.GetStream();
+                stream = _client.GetStream();
 
-                UploadRequest? request = await ProtocolReader.ReadMetadataAsync<UploadRequest>(
-                    stream,
-                    cancellationToken);
+                UploadRequest? request;
+                using (CancellationTokenSource metadataCts =
+                    CancellationTokenSource.CreateLinkedTokenSource(serverCancellationToken))
+                {
+                    metadataCts.CancelAfter(receiveTimeoutMs);
+                    try
+                    {
+                        request = await ProtocolReader.ReadRequestAsync(stream, metadataCts.Token);
+                    }
+                    catch (OperationCanceledException) when (!serverCancellationToken.IsCancellationRequested)
+                    {
+                        throw new TimeoutException(
+                            $"Không nhận được metadata trong {receiveTimeoutMs} ms.");
+                    }
+                }
 
                 long maxAllowedSize = _config.GetValue<long>("Upload:MaxAllowedSizeInBytes", 10L * 1024 * 1024 * 1024);
 
-                if (!MetadataValidator.IsValid(request!, maxAllowedSize, out ErrorCode errorCode, out string errorMessage))
+                var validation = MetadataValidator.Validate(request, maxAllowedSize);
+                if (!validation.IsValid)
                 {
                     string currentRequestId = request?.RequestId ?? string.Empty;
 
                     await SendErrorAsync(
                         stream,
                         currentRequestId,
-                        errorCode,
-                        errorMessage,
-                        cancellationToken);
+                        validation.ErrorCode,
+                        validation.Message,
+                        serverCancellationToken);
 
                     return;
                 }
@@ -82,14 +91,15 @@ namespace UDM10.Server
                 await ProtocolWriter.WriteMetadataAsync(
                     stream,
                     readyResponse,
-                    cancellationToken);
+                    serverCancellationToken);
 
                 string savedPath = await _storageService.SaveFileAsync(
                     request.FileName!,
                     request.FileSize,
                     request.FileHash,
                     stream,
-                    cancellationToken);
+                    receiveTimeoutMs,
+                    serverCancellationToken);
 
                 UploadResponse completedResponse = new()
                 {
@@ -102,26 +112,18 @@ namespace UDM10.Server
                 await ProtocolWriter.WriteMetadataAsync(
                     stream,
                     completedResponse,
-                    cancellationToken);
+                    serverCancellationToken);
 
                 _logger.LogInfo(
                     $"[{clientEndPoint}] " +
                     $"Upload completed: " +
                     $"{savedPath}");
             }
-            catch (OperationCanceledException ex)
+            catch (OperationCanceledException)
             {
                 if (serverCancellationToken.IsCancellationRequested)
                 {
                     _logger.LogWarning($"[{clientEndPoint}] Session cancelled due to Server Graceful Shutdown.");
-                }
-                else if (ex.Message == "CLIENT_CANCELLED")
-                {
-                    _logger.LogWarning($"[{clientEndPoint}] Session cancelled explicitly by Client.");
-                }
-                else if (timeoutCts.IsCancellationRequested)
-                {
-                    _logger.LogError($"[{clientEndPoint}] Connection timed out. Client was inactive too long.");
                 }
                 else
                 {
@@ -136,28 +138,31 @@ namespace UDM10.Server
             catch (InvalidDataException ex)
             {
                 _logger.LogError($"[{clientEndPoint}] Metadata không hợp lệ: {ex.Message}");
-                await TrySendErrorAsync(requestId, ErrorCode.InvalidRequest, ex.Message);
+                await TrySendErrorAsync(requestId, ErrorCode.InvalidMetadata, ex.Message);
+            }
+            catch (TimeoutException ex)
+            {
+                _logger.LogError($"[{clientEndPoint}] Timeout: {ex.Message}");
+                await TrySendErrorAsync(requestId, ErrorCode.ConnectionLost, ex.Message);
             }
             catch (IOException ex)
             {
                 _logger.LogError($"[{clientEndPoint}] Connection lost: {ex.Message}");
                 await TrySendErrorAsync(requestId, ErrorCode.ConnectionLost, "Mất kết nối trong quá trình upload.");
             }
+            catch (ChecksumMismatchException ex)
+            {
+                _logger.LogError($"[{clientEndPoint}] Checksum mismatch: {ex.Message}");
+                await TrySendErrorAsync(requestId, ErrorCode.ChecksumMismatch, ex.Message);
+            }
             catch (Exception ex)
             {
-                if (ex.Message.Contains("Checksum") || ex.Message.Contains("Hash"))
-                {
-                    _logger.LogError($"[{clientEndPoint}] Checksum mismatch: {ex.Message}");
-                    await TrySendErrorAsync(requestId, ErrorCode.ChecksumMismatch, ex.Message);
-                }
-                else
-                {
-                    _logger.LogError($"[{clientEndPoint}] Error: {ex.Message}");
-                    await TrySendErrorAsync(requestId, ErrorCode.UnknownError, "Lỗi không xác định từ Server.");
-                }
+                _logger.LogError($"[{clientEndPoint}] Error: {ex.Message}");
+                await TrySendErrorAsync(requestId, ErrorCode.UnknownError, "Lỗi không xác định từ Server.");
             }
             finally
             {
+                stream?.Dispose();
                 _client.Close();
             }
 
@@ -168,10 +173,10 @@ namespace UDM10.Server
             {
                 try
                 {
-                    if (!_client.Connected) return;
+                    if (stream is null || !_client.Connected) return;
 
                     await SendErrorAsync(
-                        _client.GetStream(),
+                        stream,
                         responseRequestId,
                         errCode,
                         message,

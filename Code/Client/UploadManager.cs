@@ -132,11 +132,12 @@ namespace UDM10.Client
                 return;
             }
 
-            registration.Task = RunTrackedUploadAsync(upload, shutdownToken);
+            _ = RunTrackedUploadAsync(upload, registration, shutdownToken);
         }
 
         private async Task RunTrackedUploadAsync(
             UploadQueueService.QueuedUpload upload,
+            ActiveUpload registration,
             CancellationToken shutdownToken)
         {
             UploadProgress terminalProgress;
@@ -159,6 +160,7 @@ namespace UDM10.Client
                 // Gỡ task trước khi báo trạng thái cuối để callback Retry có thể enqueue ngay
                 // mà không đụng task cũ vẫn còn được đánh dấu active.
                 _activeUploads.TryRemove(upload.FilePath, out _);
+                registration.Completion.TrySetResult();
             }
 
             SafeReport(upload.Progress, terminalProgress);
@@ -252,10 +254,13 @@ namespace UDM10.Client
             {
             }
 
+            while (_queueService.TryDequeue(out UploadQueueService.QueuedUpload? queuedUpload))
+            {
+                CompleteCancelledWithoutSlot(queuedUpload!);
+            }
+
             Task[] activeTasks = _activeUploads.Values
-                .Select(active => active.Task)
-                .Where(task => task is not null)
-                .Cast<Task>()
+                .Select(active => active.Completion.Task)
                 .ToArray();
 
             try
@@ -286,7 +291,8 @@ namespace UDM10.Client
 
         private sealed class ActiveUpload
         {
-            public Task? Task { get; set; }
+            public TaskCompletionSource Completion { get; } =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
         private static int ResolveMaxConcurrentFiles(int configuredMax)

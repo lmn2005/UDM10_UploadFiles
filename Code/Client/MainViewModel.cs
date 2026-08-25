@@ -95,13 +95,27 @@ namespace UDM10.Client
                 item.Message = p.Message ?? "";
                 Statistics.UpdateFile(item.FilePath, p.Status, p.BytesTransferred);
 
-                if (p.Status == UploadItemStatus.Error)
-                    ConnectionStatus = ConnectionStatus.Error;
-                else if (p.Status == UploadItemStatus.Uploading || p.Status == UploadItemStatus.Completed)
-                    ConnectionStatus = ConnectionStatus.Connected;
+                RefreshConnectionStatus(p.Status);
             });
 
             _uploadManager.EnqueueFile(item.FilePath, progress, item.UploadCancellationToken);
+        }
+
+        private void RefreshConnectionStatus(UploadItemStatus latestStatus)
+        {
+            if (latestStatus == UploadItemStatus.Error ||
+                FileList.Any(file => file.Status == UploadItemStatus.Error))
+            {
+                ConnectionStatus = ConnectionStatus.Error;
+            }
+            else if (FileList.Any(file => file.Status == UploadItemStatus.Uploading))
+            {
+                ConnectionStatus = ConnectionStatus.Connected;
+            }
+            else
+            {
+                ConnectionStatus = ConnectionStatus.Disconnected;
+            }
         }
 
         public void CancelFile(UploadItemViewModel item)

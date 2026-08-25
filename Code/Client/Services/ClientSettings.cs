@@ -17,11 +17,22 @@ namespace UDM10.Client.Services
                 return new ClientSettings();
             }
 
-            string json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<ClientSettings>(json, new JsonSerializerOptions
+            try
             {
-                PropertyNameCaseInsensitive = true
-            }) ?? new ClientSettings();
+                string json = File.ReadAllText(path);
+                return JsonSerializer.Deserialize<ClientSettings>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                }) ?? new ClientSettings();
+            }
+            catch (IOException)
+            {
+                return new ClientSettings();
+            }
+            catch (JsonException)
+            {
+                return new ClientSettings();
+            }
         }
     }
 
