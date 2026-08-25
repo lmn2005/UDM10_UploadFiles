@@ -8,7 +8,6 @@ using UDM10.Shared;
 
 namespace UDM10.Server
 {
-   
     public class ClientConnectionHandler
     {
         private readonly TcpClient _client;
@@ -28,239 +27,134 @@ namespace UDM10.Server
             _config = config;
         }
 
-        public async Task HandleAsync()
+        public async Task HandleAsync(CancellationToken serverCancellationToken = default)
         {
-            string clientEndPoint =
-                _client.Client.RemoteEndPoint?.ToString()
-                ?? "Unknown";
+            string clientEndPoint = _client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
 
-            int receiveTimeoutMs =
-                Math.Max(
-                    1,
-                    _config.GetValue<int>(
-                        "Network:ReceiveTimeoutMs",
-                        60000));
+            int receiveTimeoutMs = Math.Max(1, _config.GetValue<int>("Network:ReceiveTimeoutMs", 60000));
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(receiveTimeoutMs));
 
-            using CancellationTokenSource cts =
-                new(
-                    TimeSpan.FromMilliseconds(
-                        receiveTimeoutMs));
-
-            CancellationToken cancellationToken =
-                cts.Token;
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(serverCancellationToken, timeoutCts.Token);
+            CancellationToken cancellationToken = linkedCts.Token;
 
             string requestId = string.Empty;
 
             try
             {
-                using NetworkStream stream =
-                    _client.GetStream();
+                using NetworkStream stream = _client.GetStream();
 
-                UploadRequest? request =
-                    await ProtocolReader
-                        .ReadRequestAsync(
-                            stream,
-                            cancellationToken);
+                UploadRequest? request = await ProtocolReader.ReadMetadataAsync<UploadRequest>(
+                    stream,
+                    cancellationToken);
 
-                if (request is null)
+                long maxAllowedSize = _config.GetValue<long>("Upload:MaxAllowedSizeInBytes", 10L * 1024 * 1024 * 1024);
+
+                if (!MetadataValidator.IsValid(request!, maxAllowedSize, out ErrorCode errorCode, out string errorMessage))
                 {
+                    string currentRequestId = request?.RequestId ?? string.Empty;
+
                     await SendErrorAsync(
                         stream,
-                        string.Empty,
-                        ErrorCode.InvalidMetadata,
-                        "UploadRequest không tồn tại " +
-                        "hoặc có giá trị null.",
+                        currentRequestId,
+                        errorCode,
+                        errorMessage,
                         cancellationToken);
 
                     return;
                 }
 
-                requestId =
-                    request.RequestId ?? string.Empty;
+                requestId = request!.RequestId;
 
                 _logger.LogInfo(
                     $"[{clientEndPoint}] " +
                     $"RequestId={requestId}, " +
-                    $"Status={request.Status}, " +
-                    $"File={request.FileName}");
+                    $"File={request.FileName}, " +
+                    $"Size={request.FileSize} bytes");
 
-                long maxAllowedSize =
-                    _config.GetValue<long>(
-                        "Upload:MaxAllowedSizeInBytes",
-                        10L * 1024 * 1024 * 1024);
-
-                var validation =
-                    MetadataValidator.Validate(
-                        request,
-                        maxAllowedSize);
-
-                if (!validation.IsValid)
+                UploadResponse readyResponse = new()
                 {
-                    await SendErrorAsync(
-                        stream,
-                        requestId,
-                        validation.ErrorCode,
-                        validation.Message,
-                        cancellationToken);
+                    RequestId = requestId,
+                    Status = UploadStatus.Ready,
+                    Error = ErrorCode.None,
+                    Message = "Server sẵn sàng nhận file."
+                };
 
-                    return;
-                }
+                await ProtocolWriter.WriteMetadataAsync(
+                    stream,
+                    readyResponse,
+                    cancellationToken);
 
-               
-                if (request.Status ==
-                    UploadStatus.Cancel)
+                string savedPath = await _storageService.SaveFileAsync(
+                    request.FileName!,
+                    request.FileSize,
+                    request.FileHash,
+                    stream,
+                    cancellationToken);
+
+                UploadResponse completedResponse = new()
                 {
-                    await SendErrorAsync(
-                        stream,
-                        requestId,
-                        ErrorCode.CancelledByUser,
-                        "Upload đã được hủy " +
-                        "theo yêu cầu của Client.",
-                        cancellationToken);
+                    RequestId = requestId,
+                    Status = UploadStatus.Completed,
+                    Error = ErrorCode.None,
+                    Message = "Upload thành công."
+                };
 
-                    return;
-                }
-
-                UploadResponse readyResponse =
-                    new()
-                    {
-                        ProtocolVersion =
-                            ProtocolConstants
-                                .CurrentVersion,
-
-                        RequestId =
-                            requestId,
-
-                        Status =
-                            UploadStatus.Ready,
-
-                        ErrorCode =
-                            ErrorCode.None,
-
-                        ErrorMessage =
-                            request.Status ==
-                                UploadStatus.Retry
-                                ? "Server sẵn sàng " +
-                                  "nhận lại file."
-                                : "Server sẵn sàng " +
-                                  "nhận file."
-                    };
-
-                await ProtocolWriter
-                    .WriteResponseAsync(
-                        stream,
-                        readyResponse,
-                        cancellationToken);
-
-               
-                string savedPath =
-                    await _storageService
-                        .SaveFileAsync(
-                            request.FileName,
-                            request.FileSize,
-                            stream,
-                            requestId,
-                            clientEndPoint,
-                            cancellationToken);
-
-                UploadResponse completedResponse =
-                    new()
-                    {
-                        ProtocolVersion =
-                            ProtocolConstants
-                                .CurrentVersion,
-
-                        RequestId =
-                            requestId,
-
-                        Status =
-                            UploadStatus.Completed,
-
-                        ErrorCode =
-                            ErrorCode.None,
-
-                        ErrorMessage =
-                            "Upload thành công."
-                    };
-
-                await ProtocolWriter
-                    .WriteResponseAsync(
-                        stream,
-                        completedResponse,
-                        cancellationToken);
+                await ProtocolWriter.WriteMetadataAsync(
+                    stream,
+                    completedResponse,
+                    cancellationToken);
 
                 _logger.LogInfo(
                     $"[{clientEndPoint}] " +
                     $"Upload completed: " +
                     $"{savedPath}");
             }
-            catch (OperationCanceledException)
-                when (cancellationToken
-                    .IsCancellationRequested)
+            catch (OperationCanceledException ex)
             {
-                _logger.LogError(
-                    $"[{clientEndPoint}] " +
-                    "Connection timeout hoặc " +
-                    "upload bị hủy.");
+                if (serverCancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning($"[{clientEndPoint}] Session cancelled due to Server Graceful Shutdown.");
+                }
+                else if (ex.Message == "CLIENT_CANCELLED")
+                {
+                    _logger.LogWarning($"[{clientEndPoint}] Session cancelled explicitly by Client.");
+                }
+                else if (timeoutCts.IsCancellationRequested)
+                {
+                    _logger.LogError($"[{clientEndPoint}] Connection timed out. Client was inactive too long.");
+                }
+                else
+                {
+                    _logger.LogWarning($"[{clientEndPoint}] Upload operation was cancelled.");
+                }
             }
             catch (EndOfStreamException ex)
             {
-                _logger.LogError(
-                    $"[{clientEndPoint}] " +
-                    $"Message bị cắt: " +
-                    $"{ex.Message}");
-
-                await TrySendErrorAsync(
-                    requestId,
-                    ErrorCode.ConnectionLost,
-                    "Message bị cắt giữa chừng.");
+                _logger.LogError($"[{clientEndPoint}] Message bị cắt: {ex.Message}");
+                await TrySendErrorAsync(requestId, ErrorCode.ConnectionLost, "Message bị cắt giữa chừng.");
             }
             catch (InvalidDataException ex)
             {
-                _logger.LogError(
-                    $"[{clientEndPoint}] " +
-                    $"Metadata không hợp lệ: " +
-                    $"{ex.Message}");
-
-                await TrySendErrorAsync(
-                    requestId,
-                    ErrorCode.InvalidMetadata,
-                    ex.Message);
+                _logger.LogError($"[{clientEndPoint}] Metadata không hợp lệ: {ex.Message}");
+                await TrySendErrorAsync(requestId, ErrorCode.InvalidRequest, ex.Message);
             }
             catch (IOException ex)
             {
-                _logger.LogError(
-                    $"[{clientEndPoint}] " +
-                    $"Connection lost: " +
-                    $"{ex.Message}");
-
-                await TrySendErrorAsync(
-                    requestId,
-                    ErrorCode.ConnectionLost,
-                    "Mất kết nối trong quá trình upload.");
-            }
-            catch (ChecksumMismatchException ex)
-            {
-                _logger.LogError(
-                    $"[{clientEndPoint}] " +
-                    $"Checksum mismatch: " +
-                    $"{ex.Message}");
-
-                await TrySendErrorAsync(
-                    requestId,
-                    ErrorCode.ChecksumMismatch,
-                    ex.Message);
+                _logger.LogError($"[{clientEndPoint}] Connection lost: {ex.Message}");
+                await TrySendErrorAsync(requestId, ErrorCode.ConnectionLost, "Mất kết nối trong quá trình upload.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    $"[{clientEndPoint}] Error: " +
-                    $"{ex.Message}");
-
-                await TrySendErrorAsync(
-                    requestId,
-                    ErrorCode.UnknownError,
-                    "Lỗi không xác định từ Server.");
+                if (ex.Message.Contains("Checksum") || ex.Message.Contains("Hash"))
+                {
+                    _logger.LogError($"[{clientEndPoint}] Checksum mismatch: {ex.Message}");
+                    await TrySendErrorAsync(requestId, ErrorCode.ChecksumMismatch, ex.Message);
+                }
+                else
+                {
+                    _logger.LogError($"[{clientEndPoint}] Error: {ex.Message}");
+                    await TrySendErrorAsync(requestId, ErrorCode.UnknownError, "Lỗi không xác định từ Server.");
+                }
             }
             finally
             {
@@ -269,62 +163,46 @@ namespace UDM10.Server
 
             async Task TrySendErrorAsync(
                 string responseRequestId,
-                ErrorCode errorCode,
+                ErrorCode errCode,
                 string message)
             {
                 try
                 {
-                    if (!_client.Connected)
-                    {
-                        return;
-                    }
+                    if (!_client.Connected) return;
 
                     await SendErrorAsync(
                         _client.GetStream(),
                         responseRequestId,
-                        errorCode,
+                        errCode,
                         message,
                         CancellationToken.None);
                 }
                 catch
                 {
-                 
+
                 }
             }
         }
 
         private static Task SendErrorAsync(
-            Stream stream,
+            NetworkStream stream,
             string requestId,
             ErrorCode errorCode,
             string message,
             CancellationToken cancellationToken)
         {
-            UploadResponse response =
-                new()
-                {
-                    ProtocolVersion =
-                        ProtocolConstants
-                            .CurrentVersion,
+            UploadResponse response = new()
+            {
+                RequestId = requestId ?? string.Empty,
+                Status = UploadStatus.Error,
+                Error = errorCode,
+                Message = message
+            };
 
-                    RequestId =
-                        requestId ?? string.Empty,
-
-                    Status =
-                        UploadStatus.Error,
-
-                    ErrorCode =
-                        errorCode,
-
-                    ErrorMessage =
-                        message
-                };
-
-            return ProtocolWriter
-                .WriteResponseAsync(
-                    stream,
-                    response,
-                    cancellationToken);
+            return ProtocolWriter.WriteMetadataAsync(
+                stream,
+                response,
+                cancellationToken);
         }
     }
 }
