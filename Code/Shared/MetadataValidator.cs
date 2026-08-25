@@ -1,73 +1,147 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
+using UDM10.Shared;
 
-namespace UDM10.Shared
+namespace UDM10.Server
 {
+    
     public static class MetadataValidator
     {
-        
-        public static bool IsValid(UploadRequest request, long maxFileSize, out ErrorCode errorCode, out string errorMessage)
+        public static (
+            bool IsValid,
+            ErrorCode ErrorCode,
+            string Message) Validate(
+                UploadRequest? request,
+                long maxAllowedSize)
         {
-            if (request == null)
+            if (request is null)
             {
-                errorCode = ErrorCode.InvalidRequest;
-                errorMessage = "Request is null.";
-                return false;
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "Metadata request không tồn tại hoặc không hợp lệ.");
             }
 
-       
-            if (request.ProtocolVersion != ProtocolConstants.CurrentVersion)
+          
+            if (string.IsNullOrWhiteSpace(
+                    request.ProtocolVersion))
             {
-                errorCode = ErrorCode.UnsupportedProtocol;
-                errorMessage = $"Unsupported protocol version. Expected {ProtocolConstants.CurrentVersion}.";
-                return false;
+                return Fail(
+                    ErrorCode.ProtocolVersionMismatch,
+                    "ProtocolVersion không được để trống.");
             }
 
            
-            if (string.IsNullOrWhiteSpace(request.RequestId))
+            if (!string.Equals(
+                    request.ProtocolVersion,
+                    ProtocolConstants.CurrentVersion,
+                    StringComparison.Ordinal))
             {
-                errorCode = ErrorCode.InvalidRequest;
-                errorMessage = "RequestId cannot be empty.";
-                return false;
+                return Fail(
+                    ErrorCode.ProtocolVersionMismatch,
+                    $"ProtocolVersion không được hỗ trợ. " +
+                    $"Server yêu cầu " +
+                    $"{ProtocolConstants.CurrentVersion}.");
             }
 
             
-            if (string.IsNullOrWhiteSpace(request.FileName))
+            if (string.IsNullOrWhiteSpace(
+                    request.RequestId))
             {
-                errorCode = ErrorCode.FileNameEmpty;
-                errorMessage = "The file name cannot be empty.";
-                return false;
+                return Fail(
+                    ErrorCode.MissingRequestId,
+                    "RequestId không được để trống.");
+            }
+
+            if (request.RequestId.Length >
+                ProtocolConstants.MaxRequestIdLength)
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "RequestId vượt quá độ dài cho phép.");
             }
 
            
-            if (request.FileName.Contains("..") ||
-                request.FileName.Contains("/") ||
-                request.FileName.Contains("\\") ||
-                request.FileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            if (request.Status == UploadStatus.Cancel)
             {
-                errorCode = ErrorCode.InvalidFileName;
-                errorMessage = "The file name contains invalid characters or path traversal attempts.";
-                return false;
+                return (
+                    true,
+                    ErrorCode.None,
+                    "Yêu cầu CANCEL hợp lệ.");
             }
 
-         
+          
+            if (request.Status != UploadStatus.Request &&
+                request.Status != UploadStatus.Retry)
+            {
+                return Fail(
+                    ErrorCode.UnsupportedStatus,
+                    "Status không được hỗ trợ trong Protocol v3.");
+            }
+
+            
+            if (string.IsNullOrWhiteSpace(
+                    request.FileName))
+            {
+                return Fail(
+                    ErrorCode.FileNameEmpty,
+                    "FileName không được để trống.");
+            }
+
+            if (request.FileName.Length >
+                ProtocolConstants.MaxFileNameLength)
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "FileName vượt quá độ dài cho phép.");
+            }
+
+           
+            if (Path.GetFileName(request.FileName) !=
+                    request.FileName ||
+                request.FileName.Contains('/') ||
+                request.FileName.Contains('\\'))
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "FileName chỉ được chứa tên file, " +
+                    "không được chứa đường dẫn.");
+            }
+
+           
             if (request.FileSize <= 0)
             {
-                errorCode = ErrorCode.FileSizeInvalid;
-                errorMessage = "The file size is not valid (must be greater than 0 bytes).";
-                return false;
+                return Fail(
+                    ErrorCode.FileSizeInvalid,
+                    "FileSize phải lớn hơn 0.");
             }
 
-        
-            if (request.FileSize > maxFileSize)
+           
+            if (maxAllowedSize > 0 &&
+                request.FileSize > maxAllowedSize)
             {
-                errorCode = ErrorCode.FileTooLarge;
-                errorMessage = $"The file size exceeds the maximum allowed limit of {maxFileSize} bytes.";
-                return false;
+                return Fail(
+                    ErrorCode.FileSizeInvalid,
+                    $"FileSize vượt quá giới hạn " +
+                    $"{maxAllowedSize} byte.");
             }
 
-            errorCode = ErrorCode.None;
-            errorMessage = string.Empty;
-            return true;
+            return (
+                true,
+                ErrorCode.None,
+                "Metadata hợp lệ.");
+        }
+
+        private static (
+            bool IsValid,
+            ErrorCode ErrorCode,
+            string Message) Fail(
+                ErrorCode errorCode,
+                string message)
+        {
+            return (
+                false,
+                errorCode,
+                message);
         }
     }
 }

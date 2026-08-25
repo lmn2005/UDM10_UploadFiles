@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -8,49 +7,138 @@ using System.Threading.Tasks;
 
 namespace UDM10.Shared
 {
+   
     public static class ProtocolReader
     {
-        
-        private const int MaxMetadataLength = 8192;
-
-        private static readonly JsonSerializerOptions JsonOptions = new()
+        public static async Task<T?> ReadMetadataAsync<T>(
+            Stream stream,
+            CancellationToken cancellationToken = default)
         {
-            PropertyNameCaseInsensitive = true
-        };
+            ArgumentNullException.ThrowIfNull(stream);
 
-        public static async Task<T?> ReadMetadataAsync<T>(NetworkStream stream, CancellationToken cancellationToken = default)
-        {
-            byte[] lengthBuffer = await ReadExactBytesAsync(stream, 4, cancellationToken);
-            int metadataLength = BitConverter.ToInt32(lengthBuffer, 0);
+            string? json = await ReadMessageAsync(
+                stream,
+                cancellationToken);
 
-          
-            if (metadataLength <= 0 || metadataLength > MaxMetadataLength)
+           
+            if (json is null)
             {
-                throw new InvalidDataException($"Metadata length không hợp lệ: {metadataLength} bytes. (Cho phép: > 0 và <= {MaxMetadataLength} bytes)");
+                return default;
             }
 
-            byte[] metadataBytes = await ReadExactBytesAsync(stream, metadataLength, cancellationToken);
-            string json = Encoding.UTF8.GetString(metadataBytes);
-            return JsonSerializer.Deserialize<T>(json, JsonOptions);
+            try
+            {
+                return JsonSerializer.Deserialize<T>(json);
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidDataException(
+                    "Metadata JSON không hợp lệ.",
+                    ex);
+            }
         }
 
-        private static async Task<byte[]> ReadExactBytesAsync(NetworkStream stream, int length, CancellationToken cancellationToken)
+        public static Task<UploadRequest?> ReadRequestAsync(
+            Stream stream,
+            CancellationToken cancellationToken = default)
         {
-            byte[] buffer = new byte[length];
-            int totalRead = 0;
+            return ReadMetadataAsync<UploadRequest>(
+                stream,
+                cancellationToken);
+        }
 
-            while (totalRead < length)
+        public static Task<UploadResponse?> ReadResponseAsync(
+            Stream stream,
+            CancellationToken cancellationToken = default)
+        {
+            return ReadMetadataAsync<UploadResponse>(
+                stream,
+                cancellationToken);
+        }
+
+        private static async Task<string?> ReadMessageAsync(
+            Stream stream,
+            CancellationToken cancellationToken)
+        {
+            byte[] lengthBuffer = new byte[sizeof(int)];
+
+            int prefixBytes = await ReadExactAsync(
+                stream,
+                lengthBuffer,
+                cancellationToken);
+
+         
+            if (prefixBytes == 0)
             {
-                int bytesRead = await stream.ReadAsync(buffer.AsMemory(totalRead, length - totalRead), cancellationToken);
-                if (bytesRead == 0)
-                {
-                    throw new EndOfStreamException("Kết nối bị đóng.");
-                }
-
-                totalRead += bytesRead;
+                return null;
             }
 
-            return buffer;
+          
+            if (prefixBytes != lengthBuffer.Length)
+            {
+                throw new EndOfStreamException(
+                    "Message bị cắt giữa chừng: thiếu length prefix.");
+            }
+
+            int length = BitConverter.ToInt32(
+                lengthBuffer,
+                0);
+
+            if (length <= 0)
+            {
+                throw new InvalidDataException(
+                    "Metadata length phải lớn hơn 0.");
+            }
+
+            if (length > ProtocolConstants.MaxMetadataLength)
+            {
+                throw new InvalidDataException(
+                    $"Metadata vượt quá giới hạn " +
+                    $"{ProtocolConstants.MaxMetadataLength} byte.");
+            }
+
+            byte[] data = new byte[length];
+
+            int payloadBytes = await ReadExactAsync(
+                stream,
+                data,
+                cancellationToken);
+
+            
+            if (payloadBytes != length)
+            {
+                throw new EndOfStreamException(
+                    "Message bị cắt giữa chừng: " +
+                    "thiếu metadata payload.");
+            }
+
+            return Encoding.UTF8.GetString(data);
+        }
+
+        private static async Task<int> ReadExactAsync(
+            Stream stream,
+            byte[] buffer,
+            CancellationToken cancellationToken)
+        {
+            int totalRead = 0;
+
+            while (totalRead < buffer.Length)
+            {
+                int read = await stream.ReadAsync(
+                    buffer.AsMemory(
+                        totalRead,
+                        buffer.Length - totalRead),
+                    cancellationToken);
+
+                if (read == 0)
+                {
+                    break;
+                }
+
+                totalRead += read;
+            }
+
+            return totalRead;
         }
     }
 }
