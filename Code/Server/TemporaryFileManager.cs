@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using UDM10.Shared;
 
 namespace UDM10.Server
 {
@@ -11,7 +12,6 @@ namespace UDM10.Server
         private readonly int _chunkSize;
         private readonly string _uploadsFolder;
 
-        // Constructor nhận cả 2 tham số
         public TemporaryFileManager(int chunkSize, string uploadsFolder)
         {
             _chunkSize = chunkSize > 0 ? chunkSize : 8192;
@@ -23,21 +23,15 @@ namespace UDM10.Server
             }
         }
 
-        // Constructor dự phòng nếu code cũ chỉ truyền chunkSize
-        public TemporaryFileManager(int chunkSize) : this(chunkSize, "Uploads")
-        {
-        }
+        public TemporaryFileManager(int chunkSize) : this(chunkSize, "Uploads") { }
 
-        // Constructor dự phòng nếu code cũ chỉ truyền uploadsFolder
-        public TemporaryFileManager(string uploadsFolder) : this(8192, uploadsFolder)
-        {
-        }
+        public TemporaryFileManager(string uploadsFolder) : this(8192, uploadsFolder) { }
 
         public async Task<string> ReceiveToFileAsync(
             string finalPath,
             long fileSize,
             Stream source,
-            string expectedHash,
+            string? expectedHash,
             int receiveTimeoutMs,
             CancellationToken cancellationToken = default)
         {
@@ -45,8 +39,8 @@ namespace UDM10.Server
 
             try
             {
-                // Dùng _chunkSize làm buffer size cho FileStream
                 using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+
                 await using (var fileStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, _chunkSize, true))
                 {
                     byte[] buffer = new byte[_chunkSize];
@@ -75,21 +69,31 @@ namespace UDM10.Server
                     await fileStream.FlushAsync(cancellationToken);
                 }
 
-                string actualHash = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
-                if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(expectedHash))
                 {
-                    throw new ChecksumMismatchException(
-                        $"Checksum không khớp. Expected={expectedHash}, Actual={actualHash}.");
+                    string actualHash = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
+                    if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new ChecksumMismatchException(
+                            $"Checksum không khớp. Expected={expectedHash}, Actual={actualHash}.");
+                    }
                 }
 
-                File.Move(tempPath, finalPath);
+                File.Move(tempPath, finalPath, overwrite: true);
                 return finalPath;
             }
             catch (Exception)
             {
                 if (File.Exists(tempPath))
                 {
-                    File.Delete(tempPath);
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch 
+                    { 
+                        
+                    }
                 }
                 throw;
             }

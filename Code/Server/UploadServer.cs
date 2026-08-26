@@ -17,7 +17,6 @@ namespace UDM10.Server
         private TcpListener? _listener;
         private bool _isRunning;
 
-        // Thêm danh sách để theo dõi các luồng Client đang chạy
         private readonly ConcurrentDictionary<long, Task> _activeTasks = new();
         private long _nextSessionId;
 
@@ -29,27 +28,42 @@ namespace UDM10.Server
             _storageService = storageService;
         }
 
-        // Bổ sung CancellationToken
         public async Task StartAsync(CancellationToken cancellationToken = default)
         {
+            string ipString = _config.GetValue<string>("Network:ServerIp", "0.0.0.0") ?? "0.0.0.0";
+            IPAddress ipAddress = (ipString == "0.0.0.0" || ipString.Equals("Any", StringComparison.OrdinalIgnoreCase))
+                                    ? IPAddress.Any
+                                    : IPAddress.Parse(ipString);
+
             try
             {
-                // Đổi mặc định thành "0.0.0.0" để hỗ trợ nhận kết nối qua mạng LAN/Internet
-                string ipString = _config.GetValue<string>("Network:ServerIp", "0.0.0.0") ?? "0.0.0.0";
-                IPAddress ipAddress = (ipString == "0.0.0.0" || ipString.Equals("Any", StringComparison.OrdinalIgnoreCase))
-                                        ? IPAddress.Any
-                                        : IPAddress.Parse(ipString);
-
                 _listener = new TcpListener(ipAddress, _port);
+
+                _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+
                 _listener.Start();
                 _isRunning = true;
 
-                _logger.LogInfo("Server started successfully!");
-                _logger.LogInfo($"Server is listening on {ipAddress}:{_port}");
-                Console.WriteLine("Server started successfully!");
-                Console.WriteLine($"Server is listening on {ipAddress}:{_port}");
+                _logger.LogInfo($"[SYSTEM] Server started successfully! Listening on {ipAddress}:{_port}");
+            }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
+            {
+                _logger.LogError($"[BIND ERROR] Port {_port} đang bị chiếm dụng bởi ứng dụng khác (AddressAlreadyInUse).");
+                return;
+            }
+            catch (SocketException ex)
+            {
+                _logger.LogError($"[BIND ERROR] Không thể bind IP {ipAddress}:{_port}. Chi tiết: {ex.Message} (ErrorCode: {ex.SocketErrorCode})");
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[SYSTEM ERROR] Lỗi không xác định khi khởi động Server: {ex.Message}");
+                return;
+            }
 
-                // Đăng ký tự động gọi hàm Stop() khi nhận được tín hiệu Ctrl+C
+            try
+            {
                 using (cancellationToken.Register(() => Stop()))
                 {
                     while (_isRunning && !cancellationToken.IsCancellationRequested)
@@ -59,52 +73,71 @@ namespace UDM10.Server
                             TcpClient client = await _listener.AcceptTcpClientAsync(cancellationToken);
                             string clientEndPoint = client.Client.RemoteEndPoint?.ToString() ?? "Unknown IP";
 
-                            _logger.LogInfo($"New client connected: {clientEndPoint}");
-                            Console.WriteLine($"\nNew client connected: {clientEndPoint}");
-
-                            ClientConnectionHandler handler = new ClientConnectionHandler(client, _logger, _storageService, _config);
-
                             long sessionId = Interlocked.Increment(ref _nextSessionId);
-                            Task sessionTask = handler.HandleAsync(cancellationToken);
+                            string requestId = $"REQ-{sessionId:D4}";
+
+                            _logger.LogInfo($"[{requestId}] Client connected from {clientEndPoint}");
+
+                            Task sessionTask = Task.Run(() => HandleClientWrapperAsync(client, requestId, clientEndPoint, sessionId, cancellationToken));
                             _activeTasks[sessionId] = sessionTask;
-                            _ = sessionTask.ContinueWith(
-                                completedTask =>
-                                {
-                                    _activeTasks.TryRemove(
-                                        new KeyValuePair<long, Task>(sessionId, completedTask));
-                                },
-                                CancellationToken.None,
-                                TaskContinuationOptions.ExecuteSynchronously,
-                                TaskScheduler.Default);
                         }
                         catch (OperationCanceledException)
                         {
                             break;
                         }
-                        catch (SocketException)
+                        catch (SocketException ex)
                         {
+                            if (_isRunning)
+                            {
+                                _logger.LogError($"[NETWORK] Lỗi AcceptTcpClientAsync: {ex.Message}");
+                            }
                             break;
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError($"Error receiving new connection: {ex.Message}");
+                            _logger.LogError($"[ERROR] Lỗi không xác định khi accept client: {ex.Message}");
                         }
                     }
                 }
             }
+            finally
+            {
+                _logger.LogWarning("[SHUTDOWN] Đang chờ tất cả active upload sessions dọn dẹp và hoàn tất...");
+
+                if (!_activeTasks.IsEmpty)
+                {
+                    await Task.WhenAll(_activeTasks.Values);
+                }
+
+                _logger.LogInfo("[SHUTDOWN] Tất cả session đã đóng sạch sẽ. Server ngừng hoạt động hoàn toàn.");
+            }
+        }
+
+        private async Task HandleClientWrapperAsync(
+            TcpClient client,
+            string requestId,
+            string clientIp,
+            long sessionId,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                ClientConnectionHandler handler = new ClientConnectionHandler(client, _logger, _storageService, _config);
+                await handler.HandleAsync(cancellationToken);
+            }
             catch (Exception ex)
             {
-                _logger.LogError($"[Server Error]: {ex.Message}");
-                Console.WriteLine($"[Server Error]: {ex.Message}");
+                _logger.LogUploadEvent(
+                    UploadLifecycleEvent.Error,
+                    requestId,
+                    clientIp,
+                    "N/A",
+                    0,
+                    $"Unhandled exception: {ex.Message}");
             }
             finally
             {
-                _logger.LogWarning("[SHUTDOWN] Waiting for active upload sessions to finish or cleanup...");
-
-                await Task.WhenAll(_activeTasks.Values);
-
-                _logger.LogInfo("[SHUTDOWN] All active sessions closed safely. Server fully stopped.");
-                Console.WriteLine("[SHUTDOWN] All active sessions closed safely.");
+                _activeTasks.TryRemove(sessionId, out _);
             }
         }
 
@@ -115,8 +148,7 @@ namespace UDM10.Server
             _isRunning = false;
             _listener?.Stop();
 
-            _logger.LogInfo("Server stopped accepting new connections.");
-            Console.WriteLine("Server stopped accepting new connections.");
+            _logger.LogInfo("[SYSTEM] Server đã ngắt kết nối listener và ngừng nhận kết nối mới.");
         }
     }
 }
