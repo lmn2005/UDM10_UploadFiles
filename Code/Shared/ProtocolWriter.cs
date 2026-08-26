@@ -1,6 +1,6 @@
 using System;
+using System.Buffers.Binary;
 using System.IO;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,9 +10,6 @@ namespace UDM10.Shared
 
     public static class ProtocolWriter
     {
-        private static readonly JsonSerializerOptions JsonOptions =
-            new(JsonSerializerDefaults.Web);
-
         public static Task WriteRequestAsync(
             Stream stream,
             UploadRequest request,
@@ -45,9 +42,10 @@ namespace UDM10.Shared
 
             string json = JsonSerializer.Serialize(
                 message,
-                JsonOptions);
+                ProtocolSerialization.JsonOptions);
 
-            byte[] data = Encoding.UTF8.GetBytes(json);
+            byte[] data =
+                ProtocolSerialization.Utf8.GetBytes(json);
 
             if (data.Length == 0 ||
                 data.Length > ProtocolConstants.MaxMetadataLength)
@@ -57,8 +55,11 @@ namespace UDM10.Shared
                     $"1..{ProtocolConstants.MaxMetadataLength} byte.");
             }
 
-            byte[] lengthPrefix =
-                BitConverter.GetBytes(data.Length);
+            byte[] lengthPrefix = new byte[sizeof(int)];
+
+            BinaryPrimitives.WriteInt32LittleEndian(
+                lengthPrefix,
+                data.Length);
 
             await stream.WriteAsync(
                 lengthPrefix.AsMemory(),

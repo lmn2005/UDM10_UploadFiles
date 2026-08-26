@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Buffers.Binary;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,9 +11,6 @@ namespace UDM10.Shared
 
     public static class ProtocolReader
     {
-        private static readonly JsonSerializerOptions JsonOptions =
-            new(JsonSerializerDefaults.Web);
-
         public static async Task<T?> ReadMetadataAsync<T>(
             Stream stream,
             CancellationToken cancellationToken = default)
@@ -31,7 +29,9 @@ namespace UDM10.Shared
 
             try
             {
-                return JsonSerializer.Deserialize<T>(json, JsonOptions);
+                return JsonSerializer.Deserialize<T>(
+                    json,
+                    ProtocolSerialization.JsonOptions);
             }
             catch (JsonException ex)
             {
@@ -83,9 +83,9 @@ namespace UDM10.Shared
                     "Message bị cắt giữa chừng: thiếu length prefix.");
             }
 
-            int length = BitConverter.ToInt32(
-                lengthBuffer,
-                0);
+            int length =
+                BinaryPrimitives.ReadInt32LittleEndian(
+                    lengthBuffer);
 
             if (length <= 0)
             {
@@ -115,7 +115,16 @@ namespace UDM10.Shared
                     "thiếu metadata payload.");
             }
 
-            return Encoding.UTF8.GetString(data);
+            try
+            {
+                return ProtocolSerialization.Utf8.GetString(data);
+            }
+            catch (DecoderFallbackException ex)
+            {
+                throw new InvalidDataException(
+                    "Metadata không phải UTF-8 hợp lệ.",
+                    ex);
+            }
         }
 
         private static async Task<int> ReadExactAsync(

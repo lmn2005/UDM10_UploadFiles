@@ -1,0 +1,2 @@
+2026-08-26T15:22:15.1711750Z scenario=light-load bytes=33554432 elapsedMs=36,47 throughputMBps=877,39 cpuPercent=41,34 allocatedBytes=202600 success=True integrity=True partialRejected=True
+2026-08-26T15:22:15.1712510Z scenario=heavy-load bytes=536870912 elapsedMs=380,85 throughputMBps=1344,34 cpuPercent=46,75 allocatedBytes=396496 success=True integrity=True partialRejected=True

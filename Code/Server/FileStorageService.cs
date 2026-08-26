@@ -24,8 +24,15 @@ namespace UDM10.Server
             _logger = logger;
             _nameResolver = nameResolver ?? new DuplicateFileNameResolver(_uploadsFolder);
 
-            // Khởi tạo TemporaryFileManager với đúng tham số
-            _tempFileManager = tempFileManager ?? new TemporaryFileManager(ChunkSize, _uploadsFolder);
+            int chunkSize = config.GetValue<int>(
+                "Upload:ChunkSizeBytes",
+                ChunkSize);
+
+            _tempFileManager =
+                tempFileManager ??
+                new TemporaryFileManager(
+                    chunkSize,
+                    _uploadsFolder);
         }
 
         // Nhận dữ liệu từ 'source', ghi ra file .part theo từng chunk,
