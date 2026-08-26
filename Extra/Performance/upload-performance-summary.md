@@ -15,5 +15,5 @@
 ## Results
 | Scenario | Size | Chunk | Time (ms) | Throughput (MB/s) | CPU (%) | Allocated (MB) | RAM (MB) | Success | Integrity | Partial rejection |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
-| light-load | 32 MB | 64 KB | 32,79 | 975,86 | 38,7 | 0,19 | 46,98 | True | True | True |
-| heavy-load | 512 MB | 256 KB | 387,11 | 1322,61 | 42,8 | 0,38 | 52,06 | True | True | True |
+| light-load | 32 MB | 64 KB | 36,85 | 868,46 | 39,7 | 0,19 | 46,88 | True | True | True |
+| heavy-load | 512 MB | 256 KB | 390,17 | 1312,23 | 39,0 | 0,38 | 52,62 | True | True | True |
