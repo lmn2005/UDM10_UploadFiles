@@ -41,7 +41,7 @@
                 <GridView>
                     <GridViewColumn Header="Tên file" DisplayMemberBinding="{Binding FileNameDisplay}" Width="130"/>
                     <GridViewColumn Header="Kích thước" DisplayMemberBinding="{Binding FileSizeText}" Width="75"/>
-                    <GridViewColumn Header="Trạng thái" DisplayMemberBinding="{Binding Status}" Width="85"/>
+                    <GridViewColumn Header="Trạng thái" DisplayMemberBinding="{Binding StatusText}" Width="85"/>
                     <GridViewColumn Header="Tiến độ (%)" DisplayMemberBinding="{Binding PercentComplete}" Width="80"/>
                     <GridViewColumn Header="Tốc độ" DisplayMemberBinding="{Binding SpeedText}" Width="95"/>
                     <GridViewColumn Header="Thông báo" DisplayMemberBinding="{Binding Message}" Width="140"/>

@@ -61,11 +61,23 @@ namespace UDM10.Client
             {
                 _status = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(StatusText));
                 // Báo cho giao diện biết cần vẽ lại nút Cancel/Retry theo trạng thái mới
                 OnPropertyChanged(nameof(CanCancel));
                 OnPropertyChanged(nameof(CanRetry));
             }
         }
+
+        // Chuẩn hóa hiển thị trạng thái bằng tiếng Việt
+        public string StatusText => _status switch
+        {
+            UploadItemStatus.Waiting => "Đang chờ",
+            UploadItemStatus.Uploading => "Đang tải",
+            UploadItemStatus.Completed => "Hoàn tất",
+            UploadItemStatus.Error => "Lỗi",
+            UploadItemStatus.Cancelled => "Đã hủy",
+            _ => _status.ToString()
+        };
 
         private string _message = "";
         public string Message
@@ -103,6 +115,8 @@ namespace UDM10.Client
 
         public void PrepareForRetry()
         {
+            // Khóa ngay lập tức: đổi Status trước, khiến CanRetry = false
+            // ngay khi hàm này chạy xong, chặn double-click Retry tạo 2 lượt upload.
             CancellationTokenSource.Dispose();
             CancellationTokenSource = new CancellationTokenSource();
             PercentComplete = 0;
