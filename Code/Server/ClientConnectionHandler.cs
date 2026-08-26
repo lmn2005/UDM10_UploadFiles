@@ -182,9 +182,11 @@ namespace UDM10.Server
                         message,
                         CancellationToken.None);
                 }
-                catch
+                catch (Exception sendException)
                 {
-
+                    _logger.LogWarning(
+                        $"[{clientEndPoint}] Không thể gửi lỗi {errCode} về client: " +
+                        $"{sendException.Message}");
                 }
             }
         }

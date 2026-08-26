@@ -33,9 +33,16 @@ public sealed class TransferResult
     public double ThroughputMBps { get; set; }
     public double CpuPercent { get; set; }
     public long PeakWorkingSetBytes { get; set; }
+    public long AllocatedBytes { get; set; }
+    public long SourcePhysicalSizeBytes { get; set; }
+    public long ReceivedPhysicalSizeBytes { get; set; }
+    public string SourceSha256 { get; set; } = string.Empty;
+    public string ReceivedSha256 { get; set; } = string.Empty;
+    public bool ReceivedFileCanBeOpened { get; set; }
     public bool IntegrityOk { get; set; }
     public bool PartialFileRejected { get; set; }
     public bool UsesStreamingChunks { get; set; }
+    public bool TransferSucceeded { get; set; }
 }
 
 public sealed class MachineProfile
@@ -44,6 +51,7 @@ public sealed class MachineProfile
     public string Framework { get; set; } = string.Empty;
     public int ProcessorCount { get; set; }
     public long TotalAvailableMemoryBytes { get; set; }
+    public string NetworkDescription { get; set; } = string.Empty;
 }
 
 public static class UploadPerformanceHarness
@@ -61,7 +69,8 @@ public static class UploadPerformanceHarness
             OsDescription = RuntimeInformation.OSDescription,
             Framework = RuntimeInformation.FrameworkDescription,
             ProcessorCount = Environment.ProcessorCount,
-            TotalAvailableMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes
+            TotalAvailableMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes,
+            NetworkDescription = "In-process FileStream to FileStream; no external TCP network involved"
         };
 
         var results = new List<TransferResult>();
@@ -99,6 +108,15 @@ public static class UploadPerformanceHarness
         var markdown = BuildMarkdown(machine, results);
         var markdownPath = Path.Combine(Path.GetDirectoryName(fullReportPath)!, "upload-performance-summary.md");
         await File.WriteAllTextAsync(markdownPath, markdown);
+        var logDirectory = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(fullReportPath)!, "..", "TestLogs"));
+        Directory.CreateDirectory(logDirectory);
+        var logPath = Path.Combine(logDirectory, $"upload-performance-{DateTime.UtcNow:yyyyMMddTHHmmssZ}.log");
+        await File.WriteAllLinesAsync(logPath, results.Select(result =>
+            $"{DateTime.UtcNow:O} scenario={result.Name} bytes={result.FileSizeBytes} " +
+            $"elapsedMs={result.ElapsedMs:F2} throughputMBps={result.ThroughputMBps:F2} " +
+            $"cpuPercent={result.CpuPercent:F2} allocatedBytes={result.AllocatedBytes} " +
+            $"success={result.TransferSucceeded} integrity={result.IntegrityOk} " +
+            $"partialRejected={result.PartialFileRejected}"));
 
         Console.WriteLine("=== Upload protocol validation ===");
         foreach (var result in results)
@@ -112,6 +130,7 @@ public static class UploadPerformanceHarness
 
         Console.WriteLine($"Saved summary JSON: {fullReportPath}");
         Console.WriteLine($"Saved summary MD: {markdownPath}");
+        Console.WriteLine($"Saved test log: {logPath}");
     }
 
     private static async Task<TransferResult> MeasureScenarioAsync(PayloadScenario scenario)
@@ -129,6 +148,7 @@ public static class UploadPerformanceHarness
             var process = Process.GetCurrentProcess();
             var beforeCpu = process.TotalProcessorTime;
             var beforeRam = process.WorkingSet64;
+            var beforeAllocated = GC.GetTotalAllocatedBytes(true);
             var stopwatch = Stopwatch.StartNew();
 
             long totalBytes = 0;
@@ -148,12 +168,14 @@ public static class UploadPerformanceHarness
             var hash = await ComputeHashAsync(sourcePath);
             var finalHash = await ComputeHashAsync(finalPath);
             var memoryAfter = process.WorkingSet64;
+            var allocatedBytes = Math.Max(0, GC.GetTotalAllocatedBytes(true) - beforeAllocated);
             var cpuTime = process.TotalProcessorTime - beforeCpu;
             var elapsedSeconds = Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d);
             var cpuPercent = (cpuTime.TotalSeconds / elapsedSeconds / Environment.ProcessorCount) * 100d;
             var peakWorkingSet = Math.Max(beforeRam, memoryAfter);
 
             var shortFileRejected = await ValidateShortFileRejectedAsync(sourcePath, scenario.ChunkSizeBytes);
+            var receivedCanBeOpened = await CanOpenFileAsync(finalPath);
 
             var result = new TransferResult
             {
@@ -166,9 +188,18 @@ public static class UploadPerformanceHarness
                 ThroughputMBps = (totalBytes / (1024d * 1024d)) / elapsedSeconds,
                 CpuPercent = cpuPercent,
                 PeakWorkingSetBytes = peakWorkingSet,
-                IntegrityOk = string.Equals(hash, finalHash, StringComparison.OrdinalIgnoreCase),
+                AllocatedBytes = allocatedBytes,
+                SourcePhysicalSizeBytes = new FileInfo(sourcePath).Length,
+                ReceivedPhysicalSizeBytes = new FileInfo(finalPath).Length,
+                SourceSha256 = hash,
+                ReceivedSha256 = finalHash,
+                ReceivedFileCanBeOpened = receivedCanBeOpened,
+                IntegrityOk = string.Equals(hash, finalHash, StringComparison.OrdinalIgnoreCase) &&
+                    new FileInfo(sourcePath).Length == new FileInfo(finalPath).Length &&
+                    receivedCanBeOpened,
                 PartialFileRejected = shortFileRejected,
-                UsesStreamingChunks = scenario.ChunkSizeBytes > 0 && scenario.ChunkSizeBytes < scenario.FileSizeBytes
+                UsesStreamingChunks = scenario.ChunkSizeBytes > 0 && scenario.ChunkSizeBytes < scenario.FileSizeBytes,
+                TransferSucceeded = totalBytes == scenario.FileSizeBytes
             };
 
             return result;
@@ -233,20 +264,17 @@ public static class UploadPerformanceHarness
                 stream.SetLength(truncatedLength);
             }
 
-            var buffer = new byte[Math.Max(1, chunkSize)];
-            var totalRead = 0L;
-            using (var source = File.OpenRead(shortSource))
-            using (var target = File.Create(shortTarget))
+            var rejected = false;
+            try
             {
-                int bytesRead;
-                while ((bytesRead = await source.ReadAsync(buffer.AsMemory(0, buffer.Length))) > 0)
-                {
-                    await target.WriteAsync(buffer.AsMemory(0, bytesRead));
-                    totalRead += bytesRead;
-                }
+                await CopyExactlyAsync(shortSource, shortTarget, fileInfo.Length, chunkSize);
+            }
+            catch (EndOfStreamException)
+            {
+                rejected = true;
             }
 
-            return totalRead < fileInfo.Length && File.Exists(shortTarget);
+            return rejected && !File.Exists(shortTarget);
         }
         finally
         {
@@ -255,6 +283,43 @@ public static class UploadPerformanceHarness
                 Directory.Delete(tempDir, recursive: true);
             }
         }
+    }
+
+    private static async Task CopyExactlyAsync(string sourcePath, string targetPath, long expectedLength, int chunkSize)
+    {
+        try
+        {
+            var buffer = new byte[Math.Max(1, chunkSize)];
+            var totalRead = 0L;
+            await using var source = File.OpenRead(sourcePath);
+            await using var target = new FileStream(targetPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, buffer.Length, true);
+            while (totalRead < expectedLength)
+            {
+                var bytesRead = await source.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, expectedLength - totalRead)));
+                if (bytesRead == 0)
+                {
+                    throw new EndOfStreamException($"Received {totalRead}/{expectedLength} bytes.");
+                }
+
+                await target.WriteAsync(buffer.AsMemory(0, bytesRead));
+                totalRead += bytesRead;
+            }
+            await target.FlushAsync();
+        }
+        catch
+        {
+            if (File.Exists(targetPath))
+            {
+                File.Delete(targetPath);
+            }
+            throw;
+        }
+    }
+
+    private static async Task<bool> CanOpenFileAsync(string path)
+    {
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1, true);
+        return stream.Length >= 0;
     }
 
     private static string BuildMarkdown(MachineProfile machine, IEnumerable<TransferResult> results)
@@ -267,6 +332,7 @@ public static class UploadPerformanceHarness
         sb.AppendLine($"- Runtime: {machine.Framework}");
         sb.AppendLine($"- Logical processors: {machine.ProcessorCount}");
         sb.AppendLine($"- Available memory: {machine.TotalAvailableMemoryBytes / (1024d * 1024d * 1024d):F2} GB");
+        sb.AppendLine($"- Network: {machine.NetworkDescription}");
         sb.AppendLine();
         sb.AppendLine("## Dataset");
         sb.AppendLine("- 2 load levels: light-load (32 MB / 64 KB chunk) and heavy-load (512 MB / 256 KB chunk)");
@@ -274,13 +340,13 @@ public static class UploadPerformanceHarness
         sb.AppendLine("- Integrity is verified by SHA-256 after transfer and short files are explicitly rejected as incomplete.");
         sb.AppendLine();
         sb.AppendLine("## Results");
-        sb.AppendLine("| Scenario | Size | Chunk | Time (ms) | Throughput (MB/s) | CPU (%) | RAM (MB) | Integrity | Partial rejection |");
-        sb.AppendLine("| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ");
+        sb.AppendLine("| Scenario | Size | Chunk | Time (ms) | Throughput (MB/s) | CPU (%) | Allocated (MB) | RAM (MB) | Success | Integrity | Partial rejection |");
+        sb.AppendLine("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |");
 
         foreach (var result in results)
         {
             sb.AppendLine(
-                $"| {result.Name} | {result.FileSizeBytes / (1024d * 1024d):F0} MB | {result.ChunkSizeBytes / 1024d:F0} KB | {result.ElapsedMs:F2} | {result.ThroughputMBps:F2} | {result.CpuPercent:F1} | {result.PeakWorkingSetBytes / (1024d * 1024d):F2} | {result.IntegrityOk} | {result.PartialFileRejected} |");
+                $"| {result.Name} | {result.FileSizeBytes / (1024d * 1024d):F0} MB | {result.ChunkSizeBytes / 1024d:F0} KB | {result.ElapsedMs:F2} | {result.ThroughputMBps:F2} | {result.CpuPercent:F1} | {result.AllocatedBytes / (1024d * 1024d):F2} | {result.PeakWorkingSetBytes / (1024d * 1024d):F2} | {result.TransferSucceeded} | {result.IntegrityOk} | {result.PartialFileRejected} |");
         }
 
         return sb.ToString();
