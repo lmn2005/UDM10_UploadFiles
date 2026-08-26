@@ -84,11 +84,11 @@ namespace UDM10.Server
                 {
                     RequestId = requestId,
                     Status = UploadStatus.Ready,
-                    Error = ErrorCode.None,
-                    Message = "Server sẵn sàng nhận file."
+                    ErrorCode = ErrorCode.None,
+                    ErrorMessage = "Server sẵn sàng nhận file."
                 };
 
-                await ProtocolWriter.WriteMetadataAsync(
+                await ProtocolWriter.WriteResponseAsync(
                     stream,
                     readyResponse,
                     serverCancellationToken);
@@ -105,11 +105,11 @@ namespace UDM10.Server
                 {
                     RequestId = requestId,
                     Status = UploadStatus.Completed,
-                    Error = ErrorCode.None,
-                    Message = "Upload thành công."
+                    ErrorCode = ErrorCode.None,
+                    ErrorMessage = "Upload thành công."
                 };
 
-                await ProtocolWriter.WriteMetadataAsync(
+                await ProtocolWriter.WriteResponseAsync(
                     stream,
                     completedResponse,
                     serverCancellationToken);
@@ -154,6 +154,11 @@ namespace UDM10.Server
             {
                 _logger.LogError($"[{clientEndPoint}] Checksum mismatch: {ex.Message}");
                 await TrySendErrorAsync(requestId, ErrorCode.ChecksumMismatch, ex.Message);
+            }
+            catch (StorageException ex)
+            {
+                _logger.LogError($"[{clientEndPoint}] Storage error: {ex.Message}");
+                await TrySendErrorAsync(requestId, ErrorCode.StorageError, ex.Message);
             }
             catch (Exception ex)
             {
@@ -200,11 +205,11 @@ namespace UDM10.Server
             {
                 RequestId = requestId ?? string.Empty,
                 Status = UploadStatus.Error,
-                Error = errorCode,
-                Message = message
+                ErrorCode = errorCode,
+                ErrorMessage = message
             };
 
-            return ProtocolWriter.WriteMetadataAsync(
+            return ProtocolWriter.WriteResponseAsync(
                 stream,
                 response,
                 cancellationToken);

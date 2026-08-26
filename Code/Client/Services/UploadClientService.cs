@@ -379,6 +379,48 @@ namespace UDM10.Client.Services
                 return false;
             }
 
+            if (!Enum.IsDefined(response.Status) ||
+                response.Status is UploadStatus.None or
+                    UploadStatus.Request or
+                    UploadStatus.Cancel or
+                    UploadStatus.Retry)
+            {
+                error =
+                    $"Response có Status không hợp lệ: " +
+                    $"{response.Status}.";
+
+                return false;
+            }
+
+            if (!Enum.IsDefined(response.ErrorCode))
+            {
+                error =
+                    $"Response có ErrorCode không tồn tại: " +
+                    $"{(int)response.ErrorCode}.";
+
+                return false;
+            }
+
+            if (response.Status == UploadStatus.Error)
+            {
+                if (response.ErrorCode == ErrorCode.None ||
+                    string.IsNullOrWhiteSpace(
+                        response.ErrorMessage))
+                {
+                    error =
+                        "Response Error phải có ErrorCode và ErrorMessage.";
+
+                    return false;
+                }
+            }
+            else if (response.ErrorCode != ErrorCode.None)
+            {
+                error =
+                    "Response thành công không được chứa ErrorCode.";
+
+                return false;
+            }
+
             error = string.Empty;
             return true;
         }

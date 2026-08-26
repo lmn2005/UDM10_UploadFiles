@@ -1,13 +1,22 @@
 ﻿using System;
-using System.IO;
 using System.Linq;
-using UDM10.Shared;
 
-namespace UDM10.Server
+namespace UDM10.Shared
 {
-
     public static class MetadataValidator
     {
+        private static readonly char[] InvalidFileNameCharacters =
+            ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+
+        private static readonly string[] ReservedWindowsNames =
+        [
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5",
+            "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5",
+            "LPT6", "LPT7", "LPT8", "LPT9"
+        ];
+
         public static (
             bool IsValid,
             ErrorCode ErrorCode,
@@ -61,15 +70,17 @@ namespace UDM10.Server
                     "RequestId vượt quá độ dài cho phép.");
             }
 
-
-            if (request.Status == UploadStatus.Cancel)
+            if (!string.Equals(
+                    request.RequestId,
+                    request.RequestId.Trim(),
+                    StringComparison.Ordinal) ||
+                request.RequestId.Any(char.IsControl))
             {
-                return (
-                    true,
-                    ErrorCode.None,
-                    "Yêu cầu CANCEL hợp lệ.");
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "RequestId không được chứa khoảng trắng ở đầu/cuối " +
+                    "hoặc ký tự điều khiển.");
             }
-
 
             if (request.Status != UploadStatus.Request &&
                 request.Status != UploadStatus.Retry)
@@ -78,7 +89,6 @@ namespace UDM10.Server
                     ErrorCode.UnsupportedStatus,
                     "Status không được hỗ trợ trong Protocol v3.");
             }
-
 
             if (string.IsNullOrWhiteSpace(
                     request.FileName))
@@ -96,18 +106,31 @@ namespace UDM10.Server
                     "FileName vượt quá độ dài cho phép.");
             }
 
-
-            if (Path.GetFileName(request.FileName) !=
-                    request.FileName ||
-                request.FileName.Contains('/') ||
-                request.FileName.Contains('\\'))
+            if (!string.Equals(
+                    request.FileName,
+                    request.FileName.Trim(),
+                    StringComparison.Ordinal) ||
+                request.FileName.EndsWith('.') ||
+                request.FileName.Any(char.IsControl) ||
+                request.FileName.IndexOfAny(
+                    InvalidFileNameCharacters) >= 0)
             {
                 return Fail(
                     ErrorCode.InvalidMetadata,
-                    "FileName chỉ được chứa tên file, " +
-                    "không được chứa đường dẫn.");
+                    "FileName không hợp lệ trên Windows hoặc chứa đường dẫn.");
             }
 
+            string baseName = request.FileName.Split('.')[0];
+
+            if (request.FileName is "." or ".." ||
+                ReservedWindowsNames.Contains(
+                    baseName,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                return Fail(
+                    ErrorCode.InvalidMetadata,
+                    "FileName là tên thiết bị dành riêng trên Windows.");
+            }
 
             if (request.FileSize < 0)
             {
@@ -126,7 +149,8 @@ namespace UDM10.Server
                     $"{maxAllowedSize} byte.");
             }
 
-            if (request.FileHash.Length != 64 ||
+            if (string.IsNullOrWhiteSpace(request.FileHash) ||
+                request.FileHash.Length != 64 ||
                 !request.FileHash.All(Uri.IsHexDigit))
             {
                 return Fail(
