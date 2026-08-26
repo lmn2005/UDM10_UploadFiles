@@ -1,0 +1,51 @@
+{
+  "generatedAtUtc": "2026-08-26T11:22:54.096198Z",
+  "machine": {
+    "OsDescription": "macOS 26.5.1",
+    "Framework": ".NET 10.0.10",
+    "ProcessorCount": 8,
+    "TotalAvailableMemoryBytes": 8589934592
+  },
+  "scenarios": [
+    {
+      "Name": "light-load",
+      "ChunkSizeBytes": 65536,
+      "FileSizeBytes": 33554432
+    },
+    {
+      "Name": "heavy-load",
+      "ChunkSizeBytes": 262144,
+      "FileSizeBytes": 536870912
+    }
+  ],
+  "results": [
+    {
+      "Name": "light-load",
+      "ChunkSizeBytes": 65536,
+      "FileSizeBytes": 33554432,
+      "BytesRead": 33554432,
+      "BytesWritten": 33554432,
+      "ElapsedMs": 40.3831,
+      "ThroughputMBps": 792.4106866486228,
+      "CpuPercent": 35.62226525452479,
+      "PeakWorkingSetBytes": 49250304,
+      "IntegrityOk": true,
+      "PartialFileRejected": true,
+      "UsesStreamingChunks": true
+    },
+    {
+      "Name": "heavy-load",
+      "ChunkSizeBytes": 262144,
+      "FileSizeBytes": 536870912,
+      "BytesRead": 536870912,
+      "BytesWritten": 536870912,
+      "ElapsedMs": 325.6506,
+      "ThroughputMBps": 1572.2372383161585,
+      "CpuPercent": 53.517788697456716,
+      "PeakWorkingSetBytes": 55001088,
+      "IntegrityOk": true,
+      "PartialFileRejected": true,
+      "UsesStreamingChunks": true
+    }
+  ]
+}
