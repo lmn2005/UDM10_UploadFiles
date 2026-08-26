@@ -1,10 +1,11 @@
 {
-  "generatedAtUtc": "2026-08-26T11:22:54.096198Z",
+  "generatedAtUtc": "2026-08-26T15:56:41.850642Z",
   "machine": {
     "OsDescription": "macOS 26.5.1",
     "Framework": ".NET 10.0.10",
     "ProcessorCount": 8,
-    "TotalAvailableMemoryBytes": 8589934592
+    "TotalAvailableMemoryBytes": 8589934592,
+    "NetworkDescription": "In-process FileStream to FileStream; no external TCP network involved"
   },
   "scenarios": [
     {
@@ -25,13 +26,20 @@
       "FileSizeBytes": 33554432,
       "BytesRead": 33554432,
       "BytesWritten": 33554432,
-      "ElapsedMs": 40.3831,
-      "ThroughputMBps": 792.4106866486228,
-      "CpuPercent": 35.62226525452479,
-      "PeakWorkingSetBytes": 49250304,
+      "ElapsedMs": 36.8467,
+      "ThroughputMBps": 868.4631188138965,
+      "CpuPercent": 39.71386854182328,
+      "PeakWorkingSetBytes": 49152000,
+      "AllocatedBytes": 202664,
+      "SourcePhysicalSizeBytes": 33554432,
+      "ReceivedPhysicalSizeBytes": 33554432,
+      "SourceSha256": "1ad46bd4cd05e99f868cf6e53409ec4f3aeee5e7647bf24462c867f9b78a8424",
+      "ReceivedSha256": "1ad46bd4cd05e99f868cf6e53409ec4f3aeee5e7647bf24462c867f9b78a8424",
+      "ReceivedFileCanBeOpened": true,
       "IntegrityOk": true,
       "PartialFileRejected": true,
-      "UsesStreamingChunks": true
+      "UsesStreamingChunks": true,
+      "TransferSucceeded": true
     },
     {
       "Name": "heavy-load",
@@ -39,13 +47,20 @@
       "FileSizeBytes": 536870912,
       "BytesRead": 536870912,
       "BytesWritten": 536870912,
-      "ElapsedMs": 325.6506,
-      "ThroughputMBps": 1572.2372383161585,
-      "CpuPercent": 53.517788697456716,
-      "PeakWorkingSetBytes": 55001088,
+      "ElapsedMs": 390.1742,
+      "ThroughputMBps": 1312.2343814634592,
+      "CpuPercent": 38.980985928849215,
+      "PeakWorkingSetBytes": 55181312,
+      "AllocatedBytes": 396496,
+      "SourcePhysicalSizeBytes": 536870912,
+      "ReceivedPhysicalSizeBytes": 536870912,
+      "SourceSha256": "e25fdd75a4ddee0930f352fc55e8fb50c6d2452279f339bdba5ab3459abf4199",
+      "ReceivedSha256": "e25fdd75a4ddee0930f352fc55e8fb50c6d2452279f339bdba5ab3459abf4199",
+      "ReceivedFileCanBeOpened": true,
       "IntegrityOk": true,
       "PartialFileRejected": true,
-      "UsesStreamingChunks": true
+      "UsesStreamingChunks": true,
+      "TransferSucceeded": true
     }
   ]
 }
