@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using UDM10.Shared;
 
 namespace UDM10.Server
 {
@@ -11,7 +12,6 @@ namespace UDM10.Server
         private readonly int _chunkSize;
         private readonly string _uploadsFolder;
 
-        // Constructor nhận cả 2 tham số
         public TemporaryFileManager(int chunkSize, string uploadsFolder)
         {
             _chunkSize = chunkSize > 0 ? chunkSize : 8192;
@@ -23,21 +23,15 @@ namespace UDM10.Server
             }
         }
 
-        // Constructor dự phòng nếu code cũ chỉ truyền chunkSize
-        public TemporaryFileManager(int chunkSize) : this(chunkSize, "Uploads")
-        {
-        }
+        public TemporaryFileManager(int chunkSize) : this(chunkSize, "Uploads") { }
 
-        // Constructor dự phòng nếu code cũ chỉ truyền uploadsFolder
-        public TemporaryFileManager(string uploadsFolder) : this(8192, uploadsFolder)
-        {
-        }
+        public TemporaryFileManager(string uploadsFolder) : this(8192, uploadsFolder) { }
 
         public async Task<string> ReceiveToFileAsync(
             string finalPath,
             long fileSize,
             Stream source,
-            string expectedHash,
+            string? expectedHash,
             int receiveTimeoutMs,
             CancellationToken cancellationToken = default)
         {
@@ -45,10 +39,9 @@ namespace UDM10.Server
 
             try
             {
-                // Dùng _chunkSize làm buffer size cho FileStream
                 using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-                await using (FileStream fileStream =
-                    CreateTemporaryFile(tempPath))
+
+                await using (FileStream fileStream = CreateTemporaryFile(tempPath))
                 {
                     byte[] buffer = new byte[_chunkSize];
                     long totalBytesRead = 0;
@@ -74,8 +67,7 @@ namespace UDM10.Server
                                 buffer.AsMemory(0, bytesRead),
                                 cancellationToken);
                         }
-                        catch (Exception ex)
-                            when (IsStorageException(ex))
+                        catch (Exception ex) when (IsStorageException(ex))
                         {
                             throw new StorageException(
                                 "Không thể ghi dữ liệu vào file tạm.",
@@ -88,11 +80,9 @@ namespace UDM10.Server
 
                     try
                     {
-                        await fileStream.FlushAsync(
-                            cancellationToken);
+                        await fileStream.FlushAsync(cancellationToken);
                     }
-                    catch (Exception ex)
-                        when (IsStorageException(ex))
+                    catch (Exception ex) when (IsStorageException(ex))
                     {
                         throw new StorageException(
                             "Không thể hoàn tất ghi file tạm.",
@@ -100,19 +90,21 @@ namespace UDM10.Server
                     }
                 }
 
-                string actualHash = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
-                if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(expectedHash))
                 {
-                    throw new ChecksumMismatchException(
-                        $"Checksum không khớp. Expected={expectedHash}, Actual={actualHash}.");
+                    string actualHash = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
+                    if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new ChecksumMismatchException(
+                            $"Checksum không khớp. Expected={expectedHash}, Actual={actualHash}.");
+                    }
                 }
 
                 try
                 {
-                    File.Move(tempPath, finalPath);
+                    File.Move(tempPath, finalPath, overwrite: true);
                 }
-                catch (Exception ex)
-                    when (IsStorageException(ex))
+                catch (Exception ex) when (IsStorageException(ex))
                 {
                     throw new StorageException(
                         "Không thể đổi file tạm thành file chính thức.",
@@ -125,14 +117,20 @@ namespace UDM10.Server
             {
                 if (File.Exists(tempPath))
                 {
-                    File.Delete(tempPath);
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch 
+                    { 
+                        
+                    }
                 }
                 throw;
             }
         }
 
-        private FileStream CreateTemporaryFile(
-            string tempPath)
+        private FileStream CreateTemporaryFile(string tempPath)
         {
             try
             {
@@ -144,8 +142,7 @@ namespace UDM10.Server
                     _chunkSize,
                     useAsync: true);
             }
-            catch (Exception ex)
-                when (IsStorageException(ex))
+            catch (Exception ex) when (IsStorageException(ex))
             {
                 throw new StorageException(
                     "Không thể tạo file tạm trên Server.",
@@ -153,11 +150,9 @@ namespace UDM10.Server
             }
         }
 
-        private static bool IsStorageException(
-            Exception exception)
+        private static bool IsStorageException(Exception exception)
         {
-            return exception is IOException or
-                UnauthorizedAccessException;
+            return exception is IOException or UnauthorizedAccessException;
         }
 
         private static async Task<int> ReadWithIdleTimeoutAsync(
