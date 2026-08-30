@@ -1,461 +1,962 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Running;
+using UDM10.Shared;
 
-if (Environment.GetCommandLineArgs().Any(arg => string.Equals(arg, "--benchmark", StringComparison.OrdinalIgnoreCase)))
-{
-    BenchmarkRunner.Run<UploadChunkBenchmarks>();
-    return;
-}
+return await UploadTcpBenchmark.RunAsync(args);
 
-await UploadPerformanceHarness.RunAsync();
+internal sealed record BenchmarkOptions(
+    string OutputDirectory,
+    string ServerBuildDirectory,
+    bool AllowNonWindows);
 
-public sealed class PayloadScenario
+internal sealed record PayloadScenario(
+    string Name,
+    int ChunkSizeBytes,
+    long FileSizeBytes);
+
+internal sealed class TransferResult
 {
     public string Name { get; init; } = string.Empty;
     public int ChunkSizeBytes { get; init; }
     public long FileSizeBytes { get; init; }
+    public long BytesSent { get; init; }
+    public double ElapsedMs { get; init; }
+    public double ThroughputMBps { get; init; }
+    public double ClientCpuPercent { get; init; }
+    public double ServerCpuPercent { get; init; }
+    public long ClientPeakWorkingSetBytes { get; init; }
+    public long ServerPeakWorkingSetBytes { get; init; }
+    public long SourcePhysicalSizeBytes { get; init; }
+    public long ReceivedPhysicalSizeBytes { get; init; }
+    public string SourceSha256 { get; init; } = string.Empty;
+    public string ReceivedSha256 { get; init; } = string.Empty;
+    public bool IntegrityOk { get; init; }
+    public bool TransferSucceeded { get; init; }
 }
 
-public sealed class TransferResult
+internal sealed class MachineProfile
 {
-    public string Name { get; set; } = string.Empty;
-    public int ChunkSizeBytes { get; set; }
-    public long FileSizeBytes { get; set; }
-    public long BytesRead { get; set; }
-    public long BytesWritten { get; set; }
-    public double ElapsedMs { get; set; }
-    public double ThroughputMBps { get; set; }
-    public double CpuPercent { get; set; }
-    public long PeakWorkingSetBytes { get; set; }
-    public long AllocatedBytes { get; set; }
-    public long SourcePhysicalSizeBytes { get; set; }
-    public long ReceivedPhysicalSizeBytes { get; set; }
-    public string SourceSha256 { get; set; } = string.Empty;
-    public string ReceivedSha256 { get; set; } = string.Empty;
-    public bool ReceivedFileCanBeOpened { get; set; }
-    public bool IntegrityOk { get; set; }
-    public bool PartialFileRejected { get; set; }
-    public bool UsesStreamingChunks { get; set; }
-    public bool TransferSucceeded { get; set; }
+    public string OsDescription { get; init; } = string.Empty;
+    public string Framework { get; init; } = string.Empty;
+    public int ProcessorCount { get; init; }
+    public long TotalAvailableMemoryBytes { get; init; }
+    public string NetworkDescription { get; init; } = string.Empty;
+    public bool OfficialWindowsRun { get; init; }
 }
 
-public sealed class MachineProfile
+internal sealed class ResourceSampler
 {
-    public string OsDescription { get; set; } = string.Empty;
-    public string Framework { get; set; } = string.Empty;
-    public int ProcessorCount { get; set; }
-    public long TotalAvailableMemoryBytes { get; set; }
-    public string NetworkDescription { get; set; } = string.Empty;
-}
+    private readonly Process _clientProcess;
+    private readonly Process _serverProcess;
 
-public static class UploadPerformanceHarness
-{
-    public static async Task RunAsync()
+    public ResourceSampler(
+        Process clientProcess,
+        Process serverProcess)
     {
-        var scenarios = new[]
-        {
-            new PayloadScenario { Name = "light-load", ChunkSizeBytes = 64 * 1024, FileSizeBytes = 32L * 1024 * 1024 },
-            new PayloadScenario { Name = "heavy-load", ChunkSizeBytes = 256 * 1024, FileSizeBytes = 512L * 1024 * 1024 }
-        };
-
-        var machine = new MachineProfile
-        {
-            OsDescription = RuntimeInformation.OSDescription,
-            Framework = RuntimeInformation.FrameworkDescription,
-            ProcessorCount = Environment.ProcessorCount,
-            TotalAvailableMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes,
-            NetworkDescription = "In-process FileStream to FileStream; no external TCP network involved"
-        };
-
-        var results = new List<TransferResult>();
-        foreach (var scenario in scenarios)
-        {
-            var result = await MeasureScenarioAsync(scenario);
-            results.Add(result);
-        }
-
-        var reportPath = Path.Combine(
-            AppContext.BaseDirectory,
-            "..",
-            "..",
-            "..",
-            "..",
-            "Extra",
-            "Performance",
-            "upload-performance-summary.json");
-
-        var fullReportPath = Path.GetFullPath(reportPath);
-        Directory.CreateDirectory(Path.GetDirectoryName(fullReportPath)!);
-
-        var report = new
-        {
-            generatedAtUtc = DateTime.UtcNow,
-            machine,
-            scenarios,
-            results
-        };
-
-        await File.WriteAllTextAsync(
-            fullReportPath,
-            JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
-
-        var markdown = BuildMarkdown(machine, results);
-        var markdownPath = Path.Combine(Path.GetDirectoryName(fullReportPath)!, "upload-performance-summary.md");
-        await File.WriteAllTextAsync(markdownPath, markdown);
-        var logDirectory = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(fullReportPath)!, "..", "TestLogs"));
-        Directory.CreateDirectory(logDirectory);
-        var logPath = Path.Combine(logDirectory, $"upload-performance-{DateTime.UtcNow:yyyyMMddTHHmmssZ}.log");
-        await File.WriteAllLinesAsync(logPath, results.Select(result =>
-            $"{DateTime.UtcNow:O} scenario={result.Name} bytes={result.FileSizeBytes} " +
-            $"elapsedMs={result.ElapsedMs:F2} throughputMBps={result.ThroughputMBps:F2} " +
-            $"cpuPercent={result.CpuPercent:F2} allocatedBytes={result.AllocatedBytes} " +
-            $"success={result.TransferSucceeded} integrity={result.IntegrityOk} " +
-            $"partialRejected={result.PartialFileRejected}"));
-
-        Console.WriteLine("=== Upload protocol validation ===");
-        foreach (var result in results)
-        {
-            Console.WriteLine(
-                $"{result.Name}: size={result.FileSizeBytes:N0}B chunk={result.ChunkSizeBytes:N0}B " +
-                $"elapsed={result.ElapsedMs:F2}ms throughput={result.ThroughputMBps:F2} MB/s " +
-                $"cpu={result.CpuPercent:F1}% RAM={result.PeakWorkingSetBytes / (1024d * 1024d):F2}MB " +
-                $"integrity={result.IntegrityOk} partialReject={result.PartialFileRejected}");
-        }
-
-        Console.WriteLine($"Saved summary JSON: {fullReportPath}");
-        Console.WriteLine($"Saved summary MD: {markdownPath}");
-        Console.WriteLine($"Saved test log: {logPath}");
+        _clientProcess = clientProcess;
+        _serverProcess = serverProcess;
     }
 
-    private static async Task<TransferResult> MeasureScenarioAsync(PayloadScenario scenario)
+    public long ClientPeakWorkingSetBytes { get; private set; }
+    public long ServerPeakWorkingSetBytes { get; private set; }
+
+    public async Task SampleAsync(CancellationToken cancellationToken)
     {
-        var tempRoot = Path.Combine(Path.GetTempPath(), "udm10-upload-benchmark", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRoot);
-        var sourcePath = Path.Combine(tempRoot, "source.bin");
-        var finalPath = Path.Combine(tempRoot, "final.bin");
-        var partialPath = Path.Combine(tempRoot, "partial.bin");
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            SampleOnce();
+
+            try
+            {
+                await Task.Delay(10, cancellationToken);
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+        }
+
+        SampleOnce();
+    }
+
+    private void SampleOnce()
+    {
+        try
+        {
+            _clientProcess.Refresh();
+            ClientPeakWorkingSetBytes = Math.Max(
+                ClientPeakWorkingSetBytes,
+                _clientProcess.WorkingSet64);
+        }
+        catch (InvalidOperationException)
+        {
+        }
 
         try
         {
-            await WriteFileInChunksAsync(sourcePath, scenario.FileSizeBytes, scenario.ChunkSizeBytes);
+            _serverProcess.Refresh();
+            ServerPeakWorkingSetBytes = Math.Max(
+                ServerPeakWorkingSetBytes,
+                _serverProcess.WorkingSet64);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+}
 
-            var process = Process.GetCurrentProcess();
-            var beforeCpu = process.TotalProcessorTime;
-            var beforeRam = process.WorkingSet64;
-            var beforeAllocated = GC.GetTotalAllocatedBytes(true);
-            var stopwatch = Stopwatch.StartNew();
+internal static class UploadTcpBenchmark
+{
+    private static readonly PayloadScenario[] Scenarios =
+    [
+        new("light-load", 64 * 1024, 32L * 1024 * 1024),
+        new("heavy-load", 256 * 1024, 512L * 1024 * 1024)
+    ];
 
-            long totalBytes = 0;
-            using (var source = File.OpenRead(sourcePath))
-            using (var target = File.Create(finalPath))
+    public static async Task<int> RunAsync(string[] args)
+    {
+        BenchmarkOptions options;
+
+        try
+        {
+            options = ParseOptions(args);
+        }
+        catch (ArgumentException ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            PrintUsage();
+            return 2;
+        }
+
+        bool isWindows = OperatingSystem.IsWindows();
+        if (!isWindows && !options.AllowNonWindows)
+        {
+            Console.Error.WriteLine(
+                "Benchmark chính thức chỉ được chạy trên Windows. " +
+                "Dùng --allow-non-windows chỉ để kiểm tra kỹ thuật, " +
+                "không dùng kết quả đó làm bằng chứng nghiệm thu.");
+            return 3;
+        }
+
+        if (!Directory.Exists(options.ServerBuildDirectory) ||
+            !File.Exists(Path.Combine(
+                options.ServerBuildDirectory,
+                "UDM10.Server.dll")))
+        {
+            Console.Error.WriteLine(
+                $"Không tìm thấy Release build của Server tại: " +
+                $"{options.ServerBuildDirectory}");
+            Console.Error.WriteLine(
+                "Hãy chạy: dotnet build Code/UDM10.sln -c Release");
+            return 4;
+        }
+
+        Directory.CreateDirectory(options.OutputDirectory);
+
+        string runRoot = Path.Combine(
+            Path.GetTempPath(),
+            "udm10-tcp-benchmark",
+            Guid.NewGuid().ToString("N"));
+        string serverDirectory = Path.Combine(runRoot, "Server");
+        string uploadsDirectory = Path.Combine(runRoot, "Uploads");
+        string payloadDirectory = Path.Combine(runRoot, "Payloads");
+        Directory.CreateDirectory(serverDirectory);
+        Directory.CreateDirectory(uploadsDirectory);
+        Directory.CreateDirectory(payloadDirectory);
+
+        Process? serverProcess = null;
+        StringBuilder serverOutput = new();
+        int port = GetAvailableTcpPort();
+
+        try
+        {
+            CopyDirectory(
+                options.ServerBuildDirectory,
+                serverDirectory);
+            await WriteServerSettingsAsync(
+                serverDirectory,
+                uploadsDirectory,
+                port);
+
+            serverProcess = StartServer(
+                serverDirectory,
+                runRoot,
+                serverOutput);
+            await WaitForServerAsync(
+                serverProcess,
+                serverOutput,
+                port,
+                TimeSpan.FromSeconds(10));
+
+            MachineProfile machine = new()
             {
-                var buffer = new byte[scenario.ChunkSizeBytes];
-                int bytesRead;
-                while ((bytesRead = await source.ReadAsync(buffer.AsMemory(0, buffer.Length))) > 0)
-                {
-                    await target.WriteAsync(buffer.AsMemory(0, bytesRead));
-                    totalBytes += bytesRead;
-                }
-            }
-
-            stopwatch.Stop();
-            var hash = await ComputeHashAsync(sourcePath);
-            var finalHash = await ComputeHashAsync(finalPath);
-            var memoryAfter = process.WorkingSet64;
-            var allocatedBytes = Math.Max(0, GC.GetTotalAllocatedBytes(true) - beforeAllocated);
-            var cpuTime = process.TotalProcessorTime - beforeCpu;
-            var elapsedSeconds = Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d);
-            var cpuPercent = (cpuTime.TotalSeconds / elapsedSeconds / Environment.ProcessorCount) * 100d;
-            var peakWorkingSet = Math.Max(beforeRam, memoryAfter);
-
-            var shortFileRejected = await ValidateShortFileRejectedAsync(sourcePath, scenario.ChunkSizeBytes);
-            var receivedCanBeOpened = await CanOpenFileAsync(finalPath);
-
-            var result = new TransferResult
-            {
-                Name = scenario.Name,
-                ChunkSizeBytes = scenario.ChunkSizeBytes,
-                FileSizeBytes = scenario.FileSizeBytes,
-                BytesRead = totalBytes,
-                BytesWritten = totalBytes,
-                ElapsedMs = stopwatch.Elapsed.TotalMilliseconds,
-                ThroughputMBps = (totalBytes / (1024d * 1024d)) / elapsedSeconds,
-                CpuPercent = cpuPercent,
-                PeakWorkingSetBytes = peakWorkingSet,
-                AllocatedBytes = allocatedBytes,
-                SourcePhysicalSizeBytes = new FileInfo(sourcePath).Length,
-                ReceivedPhysicalSizeBytes = new FileInfo(finalPath).Length,
-                SourceSha256 = hash,
-                ReceivedSha256 = finalHash,
-                ReceivedFileCanBeOpened = receivedCanBeOpened,
-                IntegrityOk = string.Equals(hash, finalHash, StringComparison.OrdinalIgnoreCase) &&
-                    new FileInfo(sourcePath).Length == new FileInfo(finalPath).Length &&
-                    receivedCanBeOpened,
-                PartialFileRejected = shortFileRejected,
-                UsesStreamingChunks = scenario.ChunkSizeBytes > 0 && scenario.ChunkSizeBytes < scenario.FileSizeBytes,
-                TransferSucceeded = totalBytes == scenario.FileSizeBytes
+                OsDescription = RuntimeInformation.OSDescription,
+                Framework = RuntimeInformation.FrameworkDescription,
+                ProcessorCount = Environment.ProcessorCount,
+                TotalAvailableMemoryBytes =
+                    GC.GetGCMemoryInfo().TotalAvailableMemoryBytes,
+                NetworkDescription =
+                    "TCP loopback; Benchmark client process -> UDM10.Server process",
+                OfficialWindowsRun = isWindows
             };
 
-            return result;
+            List<TransferResult> results = [];
+            foreach (PayloadScenario scenario in Scenarios)
+            {
+                results.Add(
+                    await MeasureScenarioAsync(
+                        scenario,
+                        payloadDirectory,
+                        uploadsDirectory,
+                        serverProcess,
+                        port));
+            }
+
+            bool partialFileRejected =
+                await ValidatePartialUploadCleanupAsync(
+                    uploadsDirectory,
+                    port);
+
+            await WriteReportsAsync(
+                options.OutputDirectory,
+                machine,
+                results,
+                partialFileRejected,
+                serverOutput.ToString());
+
+            PrintResults(
+                machine,
+                results,
+                partialFileRejected,
+                options.OutputDirectory);
+
+            bool passed =
+                results.All(result =>
+                    result.TransferSucceeded &&
+                    result.IntegrityOk) &&
+                partialFileRejected;
+
+            return passed ? 0 : 1;
         }
         finally
         {
-            if (Directory.Exists(tempRoot))
+            if (serverProcess is not null)
             {
-                Directory.Delete(tempRoot, recursive: true);
+                await StopServerAsync(serverProcess);
+                serverProcess.Dispose();
             }
+
+            TryDeleteDirectory(runRoot);
         }
     }
 
-    private static async Task WriteFileInChunksAsync(string path, long totalSizeBytes, int chunkSizeBytes)
+    private static async Task<TransferResult> MeasureScenarioAsync(
+        PayloadScenario scenario,
+        string payloadDirectory,
+        string uploadsDirectory,
+        Process serverProcess,
+        int port)
     {
-        await using var stream = File.Create(path);
-        var buffer = new byte[chunkSizeBytes];
+        string requestId = Guid.NewGuid().ToString("N");
+        string fileName = $"{scenario.Name}-{requestId}.bin";
+        string sourcePath = Path.Combine(payloadDirectory, fileName);
+        string receivedPath = Path.Combine(uploadsDirectory, fileName);
+
+        await WriteFileInChunksAsync(
+            sourcePath,
+            scenario.FileSizeBytes,
+            scenario.ChunkSizeBytes);
+        string sourceHash = await ComputeHashAsync(sourcePath);
+
+        using Process clientProcess = Process.GetCurrentProcess();
+        clientProcess.Refresh();
+        serverProcess.Refresh();
+        TimeSpan clientCpuBefore = clientProcess.TotalProcessorTime;
+        TimeSpan serverCpuBefore = serverProcess.TotalProcessorTime;
+
+        ResourceSampler sampler = new(
+            clientProcess,
+            serverProcess);
+        using CancellationTokenSource samplerCts = new();
+        Task samplerTask = sampler.SampleAsync(samplerCts.Token);
+        Stopwatch stopwatch = Stopwatch.StartNew();
+
+        long bytesSent;
+        try
+        {
+            bytesSent = await UploadFileAsync(
+                sourcePath,
+                fileName,
+                scenario.FileSizeBytes,
+                sourceHash,
+                scenario.ChunkSizeBytes,
+                requestId,
+                port);
+        }
+        finally
+        {
+            stopwatch.Stop();
+            samplerCts.Cancel();
+            await samplerTask;
+        }
+
+        clientProcess.Refresh();
+        serverProcess.Refresh();
+        TimeSpan clientCpu =
+            clientProcess.TotalProcessorTime - clientCpuBefore;
+        TimeSpan serverCpu =
+            serverProcess.TotalProcessorTime - serverCpuBefore;
+        double seconds = Math.Max(
+            stopwatch.Elapsed.TotalSeconds,
+            0.001);
+
+        if (!File.Exists(receivedPath))
+        {
+            throw new InvalidDataException(
+                $"Server báo Completed nhưng không có file: {receivedPath}");
+        }
+
+        string receivedHash = await ComputeHashAsync(receivedPath);
+        long sourceLength = new FileInfo(sourcePath).Length;
+        long receivedLength = new FileInfo(receivedPath).Length;
+        bool integrityOk =
+            sourceLength == receivedLength &&
+            string.Equals(
+                sourceHash,
+                receivedHash,
+                StringComparison.OrdinalIgnoreCase);
+
+        return new TransferResult
+        {
+            Name = scenario.Name,
+            ChunkSizeBytes = scenario.ChunkSizeBytes,
+            FileSizeBytes = scenario.FileSizeBytes,
+            BytesSent = bytesSent,
+            ElapsedMs = stopwatch.Elapsed.TotalMilliseconds,
+            ThroughputMBps =
+                bytesSent / (1024d * 1024d) / seconds,
+            ClientCpuPercent = ToCpuPercent(clientCpu, seconds),
+            ServerCpuPercent = ToCpuPercent(serverCpu, seconds),
+            ClientPeakWorkingSetBytes =
+                sampler.ClientPeakWorkingSetBytes,
+            ServerPeakWorkingSetBytes =
+                sampler.ServerPeakWorkingSetBytes,
+            SourcePhysicalSizeBytes = sourceLength,
+            ReceivedPhysicalSizeBytes = receivedLength,
+            SourceSha256 = sourceHash,
+            ReceivedSha256 = receivedHash,
+            IntegrityOk = integrityOk,
+            TransferSucceeded =
+                bytesSent == scenario.FileSizeBytes
+        };
+    }
+
+    private static async Task<long> UploadFileAsync(
+        string sourcePath,
+        string fileName,
+        long fileSize,
+        string fileHash,
+        int chunkSize,
+        string requestId,
+        int port)
+    {
+        using CancellationTokenSource timeoutCts =
+            new(TimeSpan.FromMinutes(5));
+        using TcpClient client = new();
+        await client.ConnectAsync(
+            IPAddress.Loopback,
+            port,
+            timeoutCts.Token);
+        await using NetworkStream stream = client.GetStream();
+
+        UploadRequest request = new()
+        {
+            ProtocolVersion = ProtocolConstants.CurrentVersion,
+            RequestId = requestId,
+            FileName = fileName,
+            FileSize = fileSize,
+            FileHash = fileHash,
+            Status = UploadStatus.Request
+        };
+
+        await ProtocolWriter.WriteRequestAsync(
+            stream,
+            request,
+            timeoutCts.Token);
+        UploadResponse ready =
+            await ReadRequiredResponseAsync(
+                stream,
+                requestId,
+                timeoutCts.Token);
+
+        if (ready.Status != UploadStatus.Ready)
+        {
+            throw new InvalidDataException(
+                $"Server không Ready: {ready.ErrorCode} - " +
+                $"{ready.ErrorMessage}");
+        }
+
+        long bytesSent = 0;
+        byte[] buffer = new byte[chunkSize];
+        await using (FileStream source = File.OpenRead(sourcePath))
+        {
+            int bytesRead;
+            while ((bytesRead = await source.ReadAsync(
+                       buffer.AsMemory(),
+                       timeoutCts.Token)) > 0)
+            {
+                await stream.WriteAsync(
+                    buffer.AsMemory(0, bytesRead),
+                    timeoutCts.Token);
+                bytesSent += bytesRead;
+            }
+        }
+
+        await stream.FlushAsync(timeoutCts.Token);
+        UploadResponse completed =
+            await ReadRequiredResponseAsync(
+                stream,
+                requestId,
+                timeoutCts.Token);
+
+        if (completed.Status != UploadStatus.Completed ||
+            completed.ErrorCode != ErrorCode.None)
+        {
+            throw new InvalidDataException(
+                $"Upload không Completed: {completed.ErrorCode} - " +
+                $"{completed.ErrorMessage}");
+        }
+
+        return bytesSent;
+    }
+
+    private static async Task<UploadResponse> ReadRequiredResponseAsync(
+        Stream stream,
+        string expectedRequestId,
+        CancellationToken cancellationToken)
+    {
+        UploadResponse? response =
+            await ProtocolReader.ReadResponseAsync(
+                stream,
+                cancellationToken);
+
+        if (response is null ||
+            !string.Equals(
+                response.ProtocolVersion,
+                ProtocolConstants.CurrentVersion,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                response.RequestId,
+                expectedRequestId,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Response ProtocolVersion/RequestId không hợp lệ.");
+        }
+
+        return response;
+    }
+
+    private static async Task<bool> ValidatePartialUploadCleanupAsync(
+        string uploadsDirectory,
+        int port)
+    {
+        const int expectedLength = 1024 * 1024;
+        string requestId = Guid.NewGuid().ToString("N");
+        string fileName = $"partial-{requestId}.bin";
+        string finalPath = Path.Combine(uploadsDirectory, fileName);
+        string partPath = finalPath + ".part";
+        byte[] completePayload = new byte[expectedLength];
+        RandomNumberGenerator.Fill(completePayload);
+
+        using (TcpClient client = new())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, port);
+            await using NetworkStream stream = client.GetStream();
+
+            UploadRequest request = new()
+            {
+                ProtocolVersion = ProtocolConstants.CurrentVersion,
+                RequestId = requestId,
+                FileName = fileName,
+                FileSize = expectedLength,
+                FileHash = Convert.ToHexString(
+                    SHA256.HashData(completePayload)).ToLowerInvariant(),
+                Status = UploadStatus.Request
+            };
+
+            await ProtocolWriter.WriteRequestAsync(stream, request);
+            UploadResponse ready =
+                await ReadRequiredResponseAsync(
+                    stream,
+                    requestId,
+                    CancellationToken.None);
+
+            if (ready.Status != UploadStatus.Ready)
+            {
+                return false;
+            }
+
+            await stream.WriteAsync(
+                completePayload.AsMemory(0, expectedLength / 2));
+            await stream.FlushAsync();
+        }
+
+        // Ready được gửi trước khi Server mở file .part; chờ tối thiểu một khoảng
+        // ngắn để tránh kết luận cleanup thành công trước khi session xử lý EOF.
+        await Task.Delay(250);
+
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline &&
+               (File.Exists(finalPath) || File.Exists(partPath)))
+        {
+            await Task.Delay(50);
+        }
+
+        return !File.Exists(finalPath) &&
+            !File.Exists(partPath);
+    }
+
+    private static async Task WriteFileInChunksAsync(
+        string path,
+        long totalSizeBytes,
+        int chunkSizeBytes)
+    {
+        await using FileStream stream = File.Create(path);
+        byte[] buffer = new byte[chunkSizeBytes];
         long remaining = totalSizeBytes;
 
         while (remaining > 0)
         {
-            var writeLen = (int)Math.Min(buffer.Length, remaining);
-            for (var i = 0; i < writeLen; i++)
-            {
-                buffer[i] = (byte)((i + remaining) % 251);
-            }
-
-            await stream.WriteAsync(buffer.AsMemory(0, writeLen));
-            remaining -= writeLen;
+            int writeLength = (int)Math.Min(
+                buffer.Length,
+                remaining);
+            RandomNumberGenerator.Fill(
+                buffer.AsSpan(0, writeLength));
+            await stream.WriteAsync(
+                buffer.AsMemory(0, writeLength));
+            remaining -= writeLength;
         }
     }
 
     private static async Task<string> ComputeHashAsync(string path)
     {
-        await using var stream = File.OpenRead(path);
-        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        var buffer = new byte[64 * 1024];
-        int bytesRead;
-        while ((bytesRead = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length))) > 0)
-        {
-            hasher.AppendData(buffer, 0, bytesRead);
-        }
-
-        return Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
+        await using FileStream stream = File.OpenRead(path);
+        byte[] hash = await SHA256.HashDataAsync(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static async Task<bool> ValidateShortFileRejectedAsync(string sourcePath, int chunkSize)
+    private static double ToCpuPercent(
+        TimeSpan cpuTime,
+        double elapsedSeconds)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "udm10-short-file-check", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var shortSource = Path.Combine(tempDir, "source.bin");
-        var shortTarget = Path.Combine(tempDir, "target.part");
+        return cpuTime.TotalSeconds /
+            elapsedSeconds /
+            Environment.ProcessorCount *
+            100d;
+    }
 
-        try
+    private static Process StartServer(
+        string serverDirectory,
+        string workingDirectory,
+        StringBuilder output)
+    {
+        ProcessStartInfo startInfo = new()
         {
-            var fileInfo = new FileInfo(sourcePath);
-            var truncatedLength = Math.Max(1, fileInfo.Length - 1);
-            File.Copy(sourcePath, shortSource, true);
+            FileName = "dotnet",
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add(
+            Path.Combine(
+                serverDirectory,
+                "UDM10.Server.dll"));
 
-            await using (var stream = File.Open(shortSource, FileMode.Open, FileAccess.ReadWrite))
+        Process process = new()
+        {
+            StartInfo = startInfo,
+            EnableRaisingEvents = true
+        };
+        process.OutputDataReceived += (_, eventArgs) =>
+            AppendProcessOutput(output, eventArgs.Data);
+        process.ErrorDataReceived += (_, eventArgs) =>
+            AppendProcessOutput(output, eventArgs.Data);
+
+        if (!process.Start())
+        {
+            throw new InvalidOperationException(
+                "Không thể khởi động UDM10.Server.");
+        }
+
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return process;
+    }
+
+    private static void AppendProcessOutput(
+        StringBuilder output,
+        string? line)
+    {
+        if (line is null)
+        {
+            return;
+        }
+
+        lock (output)
+        {
+            output.AppendLine(line);
+        }
+    }
+
+    private static async Task WaitForServerAsync(
+        Process process,
+        StringBuilder output,
+        int port,
+        TimeSpan timeout)
+    {
+        DateTime deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (process.HasExited)
             {
-                stream.SetLength(truncatedLength);
+                throw new InvalidOperationException(
+                    $"Server thoát sớm với mã {process.ExitCode}.\n" +
+                    output);
             }
 
-            var rejected = false;
             try
             {
-                await CopyExactlyAsync(shortSource, shortTarget, fileInfo.Length, chunkSize);
+                using TcpClient probe = new();
+                await probe.ConnectAsync(
+                    IPAddress.Loopback,
+                    port);
+                return;
             }
-            catch (EndOfStreamException)
+            catch (SocketException)
             {
-                rejected = true;
+                await Task.Delay(50);
             }
-
-            return rejected && !File.Exists(shortTarget);
         }
-        finally
+
+        throw new TimeoutException(
+            $"Server không mở port {port} trong {timeout.TotalSeconds:F0} giây.");
+    }
+
+    private static async Task StopServerAsync(Process process)
+    {
+        if (process.HasExited)
         {
-            if (Directory.Exists(tempDir))
-            {
-                Directory.Delete(tempDir, recursive: true);
-            }
+            return;
+        }
+
+        process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync();
+    }
+
+    private static int GetAvailableTcpPort()
+    {
+        TcpListener listener = new(IPAddress.Loopback, 0);
+        listener.Server.ExclusiveAddressUse = true;
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+
+    private static void CopyDirectory(
+        string sourceDirectory,
+        string destinationDirectory)
+    {
+        foreach (string directory in Directory.EnumerateDirectories(
+                     sourceDirectory,
+                     "*",
+                     SearchOption.AllDirectories))
+        {
+            Directory.CreateDirectory(
+                Path.Combine(
+                    destinationDirectory,
+                    Path.GetRelativePath(sourceDirectory, directory)));
+        }
+
+        foreach (string file in Directory.EnumerateFiles(
+                     sourceDirectory,
+                     "*",
+                     SearchOption.AllDirectories))
+        {
+            string destination = Path.Combine(
+                destinationDirectory,
+                Path.GetRelativePath(sourceDirectory, file));
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination, overwrite: true);
         }
     }
 
-    private static async Task CopyExactlyAsync(string sourcePath, string targetPath, long expectedLength, int chunkSize)
+    private static async Task WriteServerSettingsAsync(
+        string serverDirectory,
+        string uploadsDirectory,
+        int port)
     {
+        var settings = new
+        {
+            Network = new
+            {
+                ServerIp = "127.0.0.1",
+                Port = port,
+                ReceiveTimeoutMs = 30000
+            },
+            Upload = new
+            {
+                SaveDirectory = uploadsDirectory,
+                ChunkSizeBytes = 65536,
+                MaxAllowedSizeInBytes = 2L * 1024 * 1024 * 1024
+            }
+        };
+
+        await File.WriteAllTextAsync(
+            Path.Combine(serverDirectory, "appsettings.json"),
+            JsonSerializer.Serialize(
+                settings,
+                new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                }));
+    }
+
+    private static async Task WriteReportsAsync(
+        string outputDirectory,
+        MachineProfile machine,
+        IReadOnlyCollection<TransferResult> results,
+        bool partialFileRejected,
+        string serverOutput)
+    {
+        string suffix = machine.OfficialWindowsRun
+            ? string.Empty
+            : "-non-windows";
+        string jsonPath = Path.Combine(
+            outputDirectory,
+            $"upload-performance-summary{suffix}.json");
+        string markdownPath = Path.Combine(
+            outputDirectory,
+            $"upload-performance-summary{suffix}.md");
+        string logPath = Path.Combine(
+            outputDirectory,
+            $"upload-performance-server{suffix}.log");
+
+        var report = new
+        {
+            GeneratedAtUtc = DateTime.UtcNow,
+            Machine = machine,
+            PartialFileRejected = partialFileRejected,
+            Results = results
+        };
+
+        await File.WriteAllTextAsync(
+            jsonPath,
+            JsonSerializer.Serialize(
+                report,
+                new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                }));
+        await File.WriteAllTextAsync(
+            markdownPath,
+            BuildMarkdown(
+                machine,
+                results,
+                partialFileRejected));
+        await File.WriteAllTextAsync(logPath, serverOutput);
+    }
+
+    private static string BuildMarkdown(
+        MachineProfile machine,
+        IEnumerable<TransferResult> results,
+        bool partialFileRejected)
+    {
+        StringBuilder builder = new();
+        builder.AppendLine("# Upload TCP performance summary");
+        builder.AppendLine();
+        builder.AppendLine("## Machine configuration");
+        builder.AppendLine($"- OS: {machine.OsDescription}");
+        builder.AppendLine($"- Runtime: {machine.Framework}");
+        builder.AppendLine($"- Logical processors: {machine.ProcessorCount}");
+        builder.AppendLine(
+            $"- Available memory: " +
+            $"{machine.TotalAvailableMemoryBytes / (1024d * 1024d * 1024d):F2} GB");
+        builder.AppendLine($"- Network: {machine.NetworkDescription}");
+        builder.AppendLine(
+            $"- Official Windows evidence: {machine.OfficialWindowsRun}");
+        builder.AppendLine();
+        builder.AppendLine("## Results");
+        builder.AppendLine(
+            "| Scenario | Size | Chunk | Time (ms) | TCP throughput (MB/s) | Client CPU (%) | Server CPU (%) | Client peak RAM (MB) | Server peak RAM (MB) | Integrity |");
+        builder.AppendLine(
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
+
+        foreach (TransferResult result in results)
+        {
+            builder.AppendLine(
+                $"| {result.Name} | " +
+                $"{result.FileSizeBytes / (1024d * 1024d):F0} MB | " +
+                $"{result.ChunkSizeBytes / 1024d:F0} KB | " +
+                $"{result.ElapsedMs:F2} | " +
+                $"{result.ThroughputMBps:F2} | " +
+                $"{result.ClientCpuPercent:F1} | " +
+                $"{result.ServerCpuPercent:F1} | " +
+                $"{result.ClientPeakWorkingSetBytes / (1024d * 1024d):F2} | " +
+                $"{result.ServerPeakWorkingSetBytes / (1024d * 1024d):F2} | " +
+                $"{result.IntegrityOk} |");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine(
+            $"- Partial upload rejected and .part cleaned: " +
+            $"{partialFileRejected}");
+        return builder.ToString();
+    }
+
+    private static void PrintResults(
+        MachineProfile machine,
+        IEnumerable<TransferResult> results,
+        bool partialFileRejected,
+        string outputDirectory)
+    {
+        Console.WriteLine("=== UDM10 TCP benchmark ===");
+        Console.WriteLine($"OS: {machine.OsDescription}");
+        Console.WriteLine($"Network: {machine.NetworkDescription}");
+
+        foreach (TransferResult result in results)
+        {
+            Console.WriteLine(
+                $"{result.Name}: " +
+                $"{result.ThroughputMBps:F2} MB/s, " +
+                $"clientCPU={result.ClientCpuPercent:F1}%, " +
+                $"serverCPU={result.ServerCpuPercent:F1}%, " +
+                $"clientRAM={result.ClientPeakWorkingSetBytes / (1024d * 1024d):F2} MB, " +
+                $"serverRAM={result.ServerPeakWorkingSetBytes / (1024d * 1024d):F2} MB, " +
+                $"integrity={result.IntegrityOk}");
+        }
+
+        Console.WriteLine(
+            $"Partial upload cleanup: {partialFileRejected}");
+        Console.WriteLine($"Reports: {outputDirectory}");
+
+        if (!machine.OfficialWindowsRun)
+        {
+            Console.WriteLine(
+                "WARNING: Đây chỉ là kiểm tra kỹ thuật ngoài Windows, " +
+                "không phải bằng chứng nghiệm thu.");
+        }
+    }
+
+    private static BenchmarkOptions ParseOptions(string[] args)
+    {
+        string repositoryRoot = Path.GetFullPath(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "..",
+                "..",
+                "..",
+                ".."));
+        string outputDirectory = Path.Combine(
+            repositoryRoot,
+            "Extra",
+            "Performance");
+        string serverBuildDirectory = Path.Combine(
+            repositoryRoot,
+            "Code",
+            "Server",
+            "bin",
+            "Release",
+            "net10.0");
+        bool allowNonWindows = false;
+
+        for (int index = 0; index < args.Length; index++)
+        {
+            switch (args[index])
+            {
+                case "--allow-non-windows":
+                    allowNonWindows = true;
+                    break;
+                case "--output":
+                    outputDirectory = ReadOptionValue(
+                        args,
+                        ref index,
+                        "--output");
+                    break;
+                case "--server-build":
+                    serverBuildDirectory = ReadOptionValue(
+                        args,
+                        ref index,
+                        "--server-build");
+                    break;
+                default:
+                    throw new ArgumentException(
+                        $"Tham số không hỗ trợ: {args[index]}");
+            }
+        }
+
+        return new BenchmarkOptions(
+            Path.GetFullPath(outputDirectory),
+            Path.GetFullPath(serverBuildDirectory),
+            allowNonWindows);
+    }
+
+    private static string ReadOptionValue(
+        string[] args,
+        ref int index,
+        string option)
+    {
+        if (++index >= args.Length ||
+            string.IsNullOrWhiteSpace(args[index]))
+        {
+            throw new ArgumentException(
+                $"Thiếu giá trị cho {option}.");
+        }
+
+        return args[index];
+    }
+
+    private static void PrintUsage()
+    {
+        Console.WriteLine(
+            "dotnet run --project Benchmark/Benchmark.csproj -c Release -- " +
+            "[--output <directory>] [--server-build <directory>] " +
+            "[--allow-non-windows]");
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
         try
         {
-            var buffer = new byte[Math.Max(1, chunkSize)];
-            var totalRead = 0L;
-            await using var source = File.OpenRead(sourcePath);
-            await using var target = new FileStream(targetPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, buffer.Length, true);
-            while (totalRead < expectedLength)
-            {
-                var bytesRead = await source.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, expectedLength - totalRead)));
-                if (bytesRead == 0)
-                {
-                    throw new EndOfStreamException($"Received {totalRead}/{expectedLength} bytes.");
-                }
-
-                await target.WriteAsync(buffer.AsMemory(0, bytesRead));
-                totalRead += bytesRead;
-            }
-            await target.FlushAsync();
+            Directory.Delete(path, recursive: true);
         }
-        catch
+        catch (IOException ex)
         {
-            if (File.Exists(targetPath))
-            {
-                File.Delete(targetPath);
-            }
-            throw;
+            Console.Error.WriteLine(
+                $"Không thể dọn thư mục benchmark tạm '{path}': " +
+                ex.Message);
         }
-    }
-
-    private static async Task<bool> CanOpenFileAsync(string path)
-    {
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1, true);
-        return stream.Length >= 0;
-    }
-
-    private static string BuildMarkdown(MachineProfile machine, IEnumerable<TransferResult> results)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("# Upload performance summary");
-        sb.AppendLine();
-        sb.AppendLine("## Machine configuration");
-        sb.AppendLine($"- OS: {machine.OsDescription}");
-        sb.AppendLine($"- Runtime: {machine.Framework}");
-        sb.AppendLine($"- Logical processors: {machine.ProcessorCount}");
-        sb.AppendLine($"- Available memory: {machine.TotalAvailableMemoryBytes / (1024d * 1024d * 1024d):F2} GB");
-        sb.AppendLine($"- Network: {machine.NetworkDescription}");
-        sb.AppendLine();
-        sb.AppendLine("## Dataset");
-        sb.AppendLine("- 2 load levels: light-load (32 MB / 64 KB chunk) and heavy-load (512 MB / 256 KB chunk)");
-        sb.AppendLine("- Files are generated in chunked fashion and streamed to disk without loading the full payload into memory at once.");
-        sb.AppendLine("- Integrity is verified by SHA-256 after transfer and short files are explicitly rejected as incomplete.");
-        sb.AppendLine();
-        sb.AppendLine("## Results");
-        sb.AppendLine("| Scenario | Size | Chunk | Time (ms) | Throughput (MB/s) | CPU (%) | Allocated (MB) | RAM (MB) | Success | Integrity | Partial rejection |");
-        sb.AppendLine("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |");
-
-        foreach (var result in results)
+        catch (UnauthorizedAccessException ex)
         {
-            sb.AppendLine(
-                $"| {result.Name} | {result.FileSizeBytes / (1024d * 1024d):F0} MB | {result.ChunkSizeBytes / 1024d:F0} KB | {result.ElapsedMs:F2} | {result.ThroughputMBps:F2} | {result.CpuPercent:F1} | {result.AllocatedBytes / (1024d * 1024d):F2} | {result.PeakWorkingSetBytes / (1024d * 1024d):F2} | {result.TransferSucceeded} | {result.IntegrityOk} | {result.PartialFileRejected} |");
-        }
-
-        return sb.ToString();
-    }
-}
-
-[MemoryDiagnoser]
-public class UploadChunkBenchmarks
-{
-    [Params(64 * 1024, 256 * 1024)]
-    public int ChunkSizeBytes { get; set; } = 64 * 1024;
-
-    [Params(32L * 1024 * 1024, 512L * 1024 * 1024)]
-    public long FileSizeBytes { get; set; } = 32L * 1024 * 1024;
-
-    [Benchmark]
-    public long StreamWriteInChunks()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), "udm10-benchmark", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var sourcePath = Path.Combine(tempDir, "source.bin");
-        var targetPath = Path.Combine(tempDir, "target.bin");
-
-        try
-        {
-            var pattern = new byte[ChunkSizeBytes];
-            for (var i = 0; i < pattern.Length; i++)
-            {
-                pattern[i] = (byte)((i + FileSizeBytes) % 251);
-            }
-
-            using (var writer = File.Create(sourcePath))
-            {
-                long remaining = FileSizeBytes;
-                while (remaining > 0)
-                {
-                    var writeLength = (int)Math.Min(pattern.Length, remaining);
-                    writer.Write(pattern, 0, writeLength);
-                    remaining -= writeLength;
-                }
-            }
-
-            long totalBytes = 0;
-            using (var source = File.OpenRead(sourcePath))
-            using (var target = File.Create(targetPath))
-            {
-                var buffer = new byte[ChunkSizeBytes];
-                int bytesRead;
-                while ((bytesRead = source.Read(buffer, 0, buffer.Length)) > 0)
-                {
-                    target.Write(buffer, 0, bytesRead);
-                    totalBytes += bytesRead;
-                }
-            }
-
-            return totalBytes;
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-            {
-                Directory.Delete(tempDir, recursive: true);
-            }
-        }
-    }
-
-    [Benchmark]
-    public string ComputeSha256Streaming()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), "udm10-benchmark-sha", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var path = Path.Combine(tempDir, "source.bin");
-
-        try
-        {
-            using (var stream = File.Create(path))
-            {
-                var buffer = new byte[ChunkSizeBytes];
-                long remaining = FileSizeBytes;
-                while (remaining > 0)
-                {
-                    var writeLength = (int)Math.Min(buffer.Length, remaining);
-                    for (var i = 0; i < writeLength; i++)
-                    {
-                        buffer[i] = (byte)((i + remaining) % 251);
-                    }
-
-                    stream.Write(buffer, 0, writeLength);
-                    remaining -= writeLength;
-                }
-            }
-
-            using var file = File.OpenRead(path);
-            using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-            var bytes = new byte[ChunkSizeBytes];
-            int bytesRead;
-            while ((bytesRead = file.Read(bytes, 0, bytes.Length)) > 0)
-            {
-                hasher.AppendData(bytes, 0, bytesRead);
-            }
-
-            return Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-            {
-                Directory.Delete(tempDir, recursive: true);
-            }
+            Console.Error.WriteLine(
+                $"Không thể dọn thư mục benchmark tạm '{path}': " +
+                ex.Message);
         }
     }
 }

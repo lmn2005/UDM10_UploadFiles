@@ -45,7 +45,14 @@ namespace UDM10.Server
                 cts.Cancel();
             };
 
-            await server.StartAsync(cts.Token);
+            bool startedSuccessfully =
+                await server.StartAsync(cts.Token);
+
+            if (!startedSuccessfully)
+            {
+                Environment.ExitCode = 1;
+                return;
+            }
 
             logger.LogInfo("[SHUTDOWN] Server stopped cleanly. Goodbye!");
         }

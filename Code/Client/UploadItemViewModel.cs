@@ -11,6 +11,8 @@ namespace UDM10.Client
         public string FilePath { get; }
         public long FileSizeBytes { get; }
         public string FileSizeText => FormatSize(FileSizeBytes);
+        public ConnectionStatus ConnectionStatus { get; set; } =
+            ConnectionStatus.Disconnected;
 
         // Rút gọn tên file dài trên giao diện, tránh vỡ layout cột "Tên file"
         public string FileNameDisplay => FileName.Length > 30

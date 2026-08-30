@@ -8,6 +8,7 @@
         public double SpeedKBps { get; set; }
         public long? BytesTransferred { get; set; }
         public UploadItemStatus Status { get; set; }
+        public ConnectionStatus? ConnectionStatus { get; set; }
         public string? Message { get; set; }
     }
 }

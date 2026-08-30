@@ -45,6 +45,7 @@ namespace UDM10.Client
                 SafeReport(progress, new UploadProgress
                 {
                     Status = UploadItemStatus.Error,
+                    ConnectionStatus = ConnectionStatus.Error,
                     Message = "Bộ điều phối upload đã đóng."
                 });
                 return;
@@ -61,6 +62,7 @@ namespace UDM10.Client
                 SafeReport(progress, new UploadProgress
                 {
                     Status = UploadItemStatus.Error,
+                    ConnectionStatus = ConnectionStatus.Error,
                     Message = "File đã có trong hàng đợi hoặc đường dẫn không hợp lệ."
                 });
                 return;
@@ -70,6 +72,7 @@ namespace UDM10.Client
             {
                 BytesTransferred = 0,
                 Status = UploadItemStatus.Waiting,
+                ConnectionStatus = ConnectionStatus.Disconnected,
                 Message = "Đang chờ lượt upload..."
             });
 
@@ -127,6 +130,7 @@ namespace UDM10.Client
                 SafeReport(upload.Progress, new UploadProgress
                 {
                     Status = UploadItemStatus.Error,
+                    ConnectionStatus = ConnectionStatus.Error,
                     Message = "File đang được upload bởi một task khác."
                 });
                 return;
@@ -152,6 +156,7 @@ namespace UDM10.Client
                 terminalProgress = new UploadProgress
                 {
                     Status = UploadItemStatus.Error,
+                    ConnectionStatus = ConnectionStatus.Error,
                     Message = $"Upload lỗi: {ex.Message}"
                 };
             }
@@ -190,6 +195,9 @@ namespace UDM10.Client
                     {
                         PercentComplete = result.IsSuccess ? 100 : 0,
                         Status = result.IsSuccess ? UploadItemStatus.Completed : UploadItemStatus.Error,
+                        ConnectionStatus = result.IsSuccess
+                            ? ConnectionStatus.Disconnected
+                            : ConnectionStatus.Error,
                         Message = result.Message
                     };
             }
@@ -203,6 +211,7 @@ namespace UDM10.Client
                 terminalProgress = new UploadProgress
                 {
                     Status = UploadItemStatus.Error,
+                    ConnectionStatus = ConnectionStatus.Error,
                     Message = $"Upload lỗi: {ex.Message}"
                 };
             }
@@ -231,6 +240,7 @@ namespace UDM10.Client
                 PercentComplete = 0,
                 SpeedKBps = 0,
                 Status = UploadItemStatus.Cancelled,
+                ConnectionStatus = ConnectionStatus.Disconnected,
                 Message = "Đã hủy upload."
             };
 
