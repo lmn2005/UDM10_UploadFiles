@@ -31,7 +31,7 @@ namespace UDM10.Server
             string finalPath,
             long fileSize,
             Stream source,
-            string? expectedHash,
+            string expectedHash,
             int receiveTimeoutMs,
             CancellationToken cancellationToken = default)
         {
@@ -90,19 +90,21 @@ namespace UDM10.Server
                     }
                 }
 
-                if (!string.IsNullOrWhiteSpace(expectedHash))
+                string actualHash = Convert.ToHexString(
+                    hasher.GetHashAndReset()).ToLowerInvariant();
+
+                if (!string.Equals(
+                        actualHash,
+                        expectedHash,
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    string actualHash = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
-                    if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw new ChecksumMismatchException(
-                            $"Checksum không khớp. Expected={expectedHash}, Actual={actualHash}.");
-                    }
+                    throw new ChecksumMismatchException(
+                        $"Checksum không khớp. Expected={expectedHash}, Actual={actualHash}.");
                 }
 
                 try
                 {
-                    File.Move(tempPath, finalPath, overwrite: true);
+                    File.Move(tempPath, finalPath);
                 }
                 catch (Exception ex) when (IsStorageException(ex))
                 {
@@ -113,7 +115,7 @@ namespace UDM10.Server
 
                 return finalPath;
             }
-            catch (Exception)
+            catch (Exception originalException)
             {
                 if (File.Exists(tempPath))
                 {
@@ -121,9 +123,14 @@ namespace UDM10.Server
                     {
                         File.Delete(tempPath);
                     }
-                    catch 
-                    { 
-                        
+                    catch (Exception cleanupException)
+                        when (IsStorageException(cleanupException))
+                    {
+                        throw new StorageException(
+                            "Upload thất bại và Server không thể xóa file .part.",
+                            new AggregateException(
+                                originalException,
+                                cleanupException));
                     }
                 }
                 throw;

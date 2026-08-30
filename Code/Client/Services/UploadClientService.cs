@@ -49,6 +49,8 @@ namespace UDM10.Client.Services
                         BytesTransferred = 0,
                         Status =
                             UploadItemStatus.Uploading,
+                        ConnectionStatus =
+                            ConnectionStatus.Connecting,
                         Message =
                             "Đang kết nối Server..."
                     });
@@ -73,6 +75,18 @@ namespace UDM10.Client.Services
 
                 await using NetworkStream stream =
                     client.GetStream();
+
+                progress?.Report(
+                    new UploadProgress
+                    {
+                        BytesTransferred = 0,
+                        Status =
+                            UploadItemStatus.Uploading,
+                        ConnectionStatus =
+                            ConnectionStatus.Connected,
+                        Message =
+                            "Đã kết nối Server, đang kiểm tra file..."
+                    });
 
                
                 string fileHash =
@@ -153,6 +167,8 @@ namespace UDM10.Client.Services
                         BytesTransferred = 0,
                         Status =
                             UploadItemStatus.Uploading,
+                        ConnectionStatus =
+                            ConnectionStatus.Connected,
                         Message =
                             "Server đã sẵn sàng, " +
                             "đang gửi file..."
@@ -217,6 +233,10 @@ namespace UDM10.Client.Services
                                 Status =
                                     UploadItemStatus
                                         .Uploading,
+
+                                ConnectionStatus =
+                                    ConnectionStatus
+                                        .Connected,
 
                                 Message =
                                     "Đang gửi file..."

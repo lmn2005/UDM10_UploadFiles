@@ -28,18 +28,37 @@ namespace UDM10.Server
             _storageService = storageService;
         }
 
-        public async Task StartAsync(CancellationToken cancellationToken = default)
+        public async Task<bool> StartAsync(CancellationToken cancellationToken = default)
         {
             string ipString = _config.GetValue<string>("Network:ServerIp", "0.0.0.0") ?? "0.0.0.0";
-            IPAddress ipAddress = (ipString == "0.0.0.0" || ipString.Equals("Any", StringComparison.OrdinalIgnoreCase))
-                                    ? IPAddress.Any
-                                    : IPAddress.Parse(ipString);
+            IPAddress ipAddress;
+
+            if (ipString == "0.0.0.0" ||
+                ipString.Equals("Any", StringComparison.OrdinalIgnoreCase))
+            {
+                ipAddress = IPAddress.Any;
+            }
+            else if (!IPAddress.TryParse(ipString, out ipAddress!))
+            {
+                _logger.LogError(
+                    $"[CONFIG ERROR] Network:ServerIp '{ipString}' không phải địa chỉ IP hợp lệ.");
+                return false;
+            }
+
+            if (_port is < 1 or > 65535)
+            {
+                _logger.LogError(
+                    $"[CONFIG ERROR] Network:Port phải nằm trong khoảng 1..65535, giá trị hiện tại: {_port}.");
+                return false;
+            }
 
             try
             {
                 _listener = new TcpListener(ipAddress, _port);
 
-                _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                // Server demo phải sở hữu độc quyền endpoint. Không bật ReuseAddress vì
+                // có thể cho phép hai tiến trình cùng bind một port trên một số hệ điều hành.
+                _listener.Server.ExclusiveAddressUse = true;
 
                 _listener.Start();
                 _isRunning = true;
@@ -49,17 +68,17 @@ namespace UDM10.Server
             catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
             {
                 _logger.LogError($"[BIND ERROR] Port {_port} đang bị chiếm dụng bởi ứng dụng khác (AddressAlreadyInUse).");
-                return;
+                return false;
             }
             catch (SocketException ex)
             {
                 _logger.LogError($"[BIND ERROR] Không thể bind IP {ipAddress}:{_port}. Chi tiết: {ex.Message} (ErrorCode: {ex.SocketErrorCode})");
-                return;
+                return false;
             }
             catch (Exception ex)
             {
                 _logger.LogError($"[SYSTEM ERROR] Lỗi không xác định khi khởi động Server: {ex.Message}");
-                return;
+                return false;
             }
 
             try
@@ -78,8 +97,18 @@ namespace UDM10.Server
 
                             _logger.LogInfo($"[{requestId}] Client connected from {clientEndPoint}");
 
-                            Task sessionTask = Task.Run(() => HandleClientWrapperAsync(client, requestId, clientEndPoint, sessionId, cancellationToken));
-                            _activeTasks[sessionId] = sessionTask;
+                            TaskCompletionSource sessionCompletion =
+                                new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                            _activeTasks[sessionId] = sessionCompletion.Task;
+
+                            _ = HandleClientWrapperAsync(
+                                client,
+                                requestId,
+                                clientEndPoint,
+                                sessionId,
+                                sessionCompletion,
+                                cancellationToken);
                         }
                         catch (OperationCanceledException)
                         {
@@ -111,6 +140,8 @@ namespace UDM10.Server
 
                 _logger.LogInfo("[SHUTDOWN] Tất cả session đã đóng sạch sẽ. Server ngừng hoạt động hoàn toàn.");
             }
+
+            return true;
         }
 
         private async Task HandleClientWrapperAsync(
@@ -118,6 +149,7 @@ namespace UDM10.Server
             string requestId,
             string clientIp,
             long sessionId,
+            TaskCompletionSource sessionCompletion,
             CancellationToken cancellationToken)
         {
             try
@@ -137,6 +169,7 @@ namespace UDM10.Server
             }
             finally
             {
+                sessionCompletion.TrySetResult();
                 _activeTasks.TryRemove(sessionId, out _);
             }
         }

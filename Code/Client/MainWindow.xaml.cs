@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Net;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,6 +8,8 @@ namespace UDM10.Client
     public partial class MainWindow : Window
     {
         private readonly MainViewModel _viewModel = new();
+        private bool _allowClose;
+        private bool _isClosing;
 
         public MainWindow()
         {
@@ -78,9 +81,34 @@ namespace UDM10.Client
             return true;
         }
 
-        private async void Window_Closed(object? sender, EventArgs e)
+        private async void Window_Closing(
+            object? sender,
+            CancelEventArgs e)
         {
-            await _viewModel.DisposeAsync();
+            if (_allowClose)
+            {
+                return;
+            }
+
+            e.Cancel = true;
+
+            if (_isClosing)
+            {
+                return;
+            }
+
+            _isClosing = true;
+            IsEnabled = false;
+
+            try
+            {
+                await _viewModel.DisposeAsync();
+            }
+            finally
+            {
+                _allowClose = true;
+                Close();
+            }
         }
     }
 }

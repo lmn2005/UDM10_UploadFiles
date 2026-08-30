@@ -1,58 +1,25 @@
-## 3. Giao thức truyền tải (Protocol v3)
+# UDM10 — Upload nhiều file
 
-Protocol v3 kế thừa cơ chế truyền file của Protocol v2 và bổ sung
-cơ chế quản lý phiên upload bằng `RequestId`, xử lý `CANCEL`,
-`RETRY`, chuẩn hóa `ErrorCode` và kiểm tra tính hợp lệ của request.
+Ứng dụng Client–Server truyền nhiều file qua TCP. Client WPF hỗ trợ chọn hoặc kéo thả file, hàng đợi tối đa 3 upload đồng thời, tiến độ/tốc độ riêng, Cancel và Retry. Server nhận đúng số byte, kiểm tra SHA-256, dọn file `.part` khi lỗi và đổi tên file trùng mà không ghi đè.
 
-### 3.1. Cấu trúc Request
+## Môi trường chính thức
 
-Client gửi `UploadRequest` dưới dạng JSON, gồm các thông tin:
+- Build, chạy, demo và lấy bằng chứng nghiệm thu trên Windows 10/11 hoặc Windows VM.
+- Client dùng WPF nên không chạy trên macOS/Linux.
+- Kết quả build hoặc benchmark ngoài Windows chỉ dùng để kiểm tra kỹ thuật, không phải bằng chứng nghiệm thu.
 
-- `ProtocolVersion`: Phiên bản giao thức, hiện tại là `V3`.
-- `RequestId`: Mã định danh duy nhất cho mỗi phiên upload.
-- `FileName`: Tên file cần upload.
-- `FileSize`: Kích thước file.
-- `FileHash`: Hash dùng để kiểm tra tính toàn vẹn.
-- `Status`: Trạng thái của request (`Request`, `Retry` hoặc `Cancel`).
+## Cấu trúc
 
-### 3.2. Validation
+- `Code/Client`: ứng dụng WPF.
+- `Code/Server`: TCP Server.
+- `Code/Shared`: Protocol v3 dùng chung.
+- `Benchmark`: công cụ benchmark TCP với tiến trình Server riêng.
+- `Extra`: screenshot, log và kết quả hiệu năng.
 
-Server kiểm tra request trước khi bắt đầu upload:
+Tài liệu đầy đủ về kiến trúc, Protocol v3, cấu hình, build, publish, chạy hai máy và benchmark nằm tại [Code/README.md](Code/README.md).
 
-1. Kiểm tra `ProtocolVersion` có đúng `V3`.
-2. Kiểm tra `RequestId` không được rỗng.
-3. Kiểm tra `Status` có được Protocol v3 hỗ trợ.
-4. Kiểm tra `FileName` không rỗng.
-5. Kiểm tra `FileSize` hợp lệ và không vượt quá giới hạn cấu hình.
+## Lưu ý Protocol v3
 
-Nếu request không hợp lệ, Server trả về:
-
-- `Status = Error`
-- `ErrorCode` tương ứng
-- `ErrorMessage` mô tả nguyên nhân
-- `RequestId` của request nếu đã xác định được.
-
-### 3.3. Lifecycle
-
-Luồng upload thông thường:
-
-
-Client
-  |
-  | Request
-  | ProtocolVersion = V3
-  | RequestId = GUID
-  v
-Server
-  |
-  | Validation
-  |
-  +---- Invalid ----> Error + ErrorCode
-  |
-  +---- Valid ------> Ready
-                         |
-                         v
-                    File Transfer
-                         |
-                         v
-                      Completed
+- Request upload mới dùng status `Request`; Retry tạo một request mới.
+- Cancel trên Client hủy cancellation token và đóng kết nối upload hiện tại. Server phát hiện luồng bị ngắt và dọn `.part`.
+- Không có Pause/Resume.

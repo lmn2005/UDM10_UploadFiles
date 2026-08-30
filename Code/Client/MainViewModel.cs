@@ -93,24 +93,40 @@ namespace UDM10.Client
                 }
                 item.Status = p.Status;
                 item.Message = p.Message ?? "";
+
+                if (p.ConnectionStatus.HasValue)
+                {
+                    item.ConnectionStatus =
+                        p.ConnectionStatus.Value;
+                }
+
                 Statistics.UpdateFile(item.FilePath, p.Status, p.BytesTransferred);
 
-                RefreshConnectionStatus(p.Status);
+                RefreshConnectionStatus();
             });
 
             _uploadManager.EnqueueFile(item.FilePath, progress, item.UploadCancellationToken);
         }
 
-        private void RefreshConnectionStatus(UploadItemStatus latestStatus)
+        private void RefreshConnectionStatus()
         {
-            if (latestStatus == UploadItemStatus.Error ||
-                FileList.Any(file => file.Status == UploadItemStatus.Error))
-            {
-                ConnectionStatus = ConnectionStatus.Error;
-            }
-            else if (FileList.Any(file => file.Status == UploadItemStatus.Uploading))
+            if (FileList.Any(
+                    file => file.ConnectionStatus ==
+                        ConnectionStatus.Connected))
             {
                 ConnectionStatus = ConnectionStatus.Connected;
+            }
+            else if (FileList.Any(
+                         file => file.ConnectionStatus ==
+                             ConnectionStatus.Connecting))
+            {
+                ConnectionStatus = ConnectionStatus.Connecting;
+            }
+            else if (FileList.Any(
+                         file => file.ConnectionStatus ==
+                             ConnectionStatus.Error))
+            {
+                ConnectionStatus = ConnectionStatus.Error;
             }
             else
             {

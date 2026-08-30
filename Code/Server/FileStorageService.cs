@@ -40,7 +40,7 @@ namespace UDM10.Server
         public async Task<string> SaveFileAsync(
             string fileName,
             long fileSize,
-            string? expectedHash,
+            string expectedHash,
             Stream source,
             int receiveTimeoutMs,
             CancellationToken cancellationToken = default)

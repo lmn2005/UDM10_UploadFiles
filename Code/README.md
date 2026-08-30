@@ -177,8 +177,29 @@ Hai thư mục publish dùng chung assembly Protocol v3. Thư mục `publish` đ
 
 `127.0.0.1` chỉ dùng khi Client và Server chạy trên cùng một máy/VM.
 
-## 6. Phạm vi hoàn thành
+## 6. Benchmark TCP trên Windows
+
+Benchmark chạy một tiến trình Client benchmark và một tiến trình `UDM10.Server` riêng, truyền dữ liệu qua TCP loopback. Hai mức tải mặc định là 32 MiB/chunk 64 KiB và 512 MiB/chunk 256 KiB. Công cụ đo throughput TCP, CPU và peak working set riêng của hai tiến trình, đối chiếu size/SHA-256, đồng thời kiểm tra upload thiếu byte bị từ chối và `.part` được dọn.
+
+Mở PowerShell tại thư mục gốc repository trên Windows:
+
+```powershell
+dotnet build .\Code\UDM10.sln -c Release
+dotnet run --project .\Benchmark\Benchmark.csproj -c Release
+```
+
+Kết quả chính thức được ghi vào:
+
+- `Extra\Performance\upload-performance-summary.json`
+- `Extra\Performance\upload-performance-summary.md`
+- `Extra\Performance\upload-performance-server.log`
+
+Benchmark từ chối chạy chính thức ngoài Windows. Tham số `--allow-non-windows` chỉ dành cho kiểm tra kỹ thuật và tạo file có hậu tố `-non-windows`; tuyệt đối không dùng các file này làm bằng chứng nghiệm thu.
+
+Benchmark loopback xác nhận hiệu năng TCP của code trên một máy. Bài demo Client–Server trên hai máy/VM ở mục 5 vẫn phải thực hiện riêng để xác nhận firewall, IP LAN và hoạt động thực tế của giao diện WPF.
+
+## 7. Phạm vi hoàn thành
 
 Code đã có scheduler tối đa 3 upload, trạng thái và thống kê từng phiên, xử lý tên trùng, đọc đúng `fileSize`, kiểm tra SHA-256, timeout và cleanup `.part`. Protocol request/response sử dụng chung cách serialize/deserialize và validation ở `Shared`.
 
-Việc demo hai máy, chụp bằng chứng, ghi số liệu benchmark và xác nhận Release Candidate vẫn là bước nghiệm thu thủ công trên Windows; README không thay thế các bằng chứng đó.
+Việc demo hai máy, chụp bằng chứng, chạy lại benchmark TCP và xác nhận Release Candidate vẫn là bước nghiệm thu thủ công trên Windows; README không thay thế các bằng chứng đó.
