@@ -266,15 +266,28 @@ namespace UDM10.Client.Services
                 }
 
                 if (finalResponse.Status ==
-                    UploadStatus.Completed)
+    UploadStatus.Completed)
                 {
-                    return UploadResult.Success(
+                    string savedFileName =
+                        finalResponse.SavedFileName;
+
+                    string message =
                         string.IsNullOrWhiteSpace(
                             finalResponse.ErrorMessage)
-                            ? $"Upload thành công: " +
-                              $"{fileInfo.Name}"
-                            : finalResponse
-                                .ErrorMessage);
+                            ? $"Upload thành công: {savedFileName}"
+                            : finalResponse.ErrorMessage;
+
+                    if (!string.Equals(
+                            savedFileName,
+                            fileInfo.Name,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        message +=
+                            $" File đã được lưu với tên: " +
+                            $"{savedFileName}.";
+                    }
+
+                    return UploadResult.Success(message);
                 }
 
                 if (finalResponse.Status ==
@@ -339,104 +352,34 @@ namespace UDM10.Client.Services
         }
 
         private static bool IsValidResponse(
-            UploadResponse response,
-            string requestId,
-            out string error)
+    UploadResponse response,
+    string requestId,
+    out string error)
         {
-            if (response is null)
-            {
-                error =
-                    "Response không tồn tại.";
+            var validation =
+                MetadataValidator.ValidateResponse(response);
 
+            if (!validation.IsValid)
+            {
+                error = validation.Message;
                 return false;
             }
 
-        
-            if (string.IsNullOrWhiteSpace(
-                    response.ProtocolVersion))
-            {
-                error =
-                    "Response thiếu ProtocolVersion.";
-
-                return false;
-            }
-
-            if (!string.Equals(
-                    response.ProtocolVersion,
-                    ProtocolConstants.CurrentVersion,
-                    StringComparison.Ordinal))
-            {
-                error =
-                    $"Sai ProtocolVersion: " +
-                    $"Server trả " +
-                    $"{response.ProtocolVersion}, " +
-                    $"Client yêu cầu " +
-                    $"{ProtocolConstants.CurrentVersion}.";
-
-                return false;
-            }
-
-          
             if (string.IsNullOrWhiteSpace(
                     response.RequestId))
             {
-                error =
-                    "Response thiếu RequestId.";
-
+                error = "Response thiếu RequestId.";
                 return false;
             }
 
-            
             if (!string.Equals(
                     response.RequestId,
                     requestId,
                     StringComparison.Ordinal))
             {
                 error =
-                    "RequestId của response " +
-                    "không khớp với request hiện tại.";
-
-                return false;
-            }
-
-            if (!Enum.IsDefined(response.Status) ||
-                response.Status is UploadStatus.None or
-                    UploadStatus.Request or
-                    UploadStatus.Cancel or
-                    UploadStatus.Retry)
-            {
-                error =
-                    $"Response có Status không hợp lệ: " +
-                    $"{response.Status}.";
-
-                return false;
-            }
-
-            if (!Enum.IsDefined(response.ErrorCode))
-            {
-                error =
-                    $"Response có ErrorCode không tồn tại: " +
-                    $"{(int)response.ErrorCode}.";
-
-                return false;
-            }
-
-            if (response.Status == UploadStatus.Error)
-            {
-                if (response.ErrorCode == ErrorCode.None ||
-                    string.IsNullOrWhiteSpace(
-                        response.ErrorMessage))
-                {
-                    error =
-                        "Response Error phải có ErrorCode và ErrorMessage.";
-
-                    return false;
-                }
-            }
-            else if (response.ErrorCode != ErrorCode.None)
-            {
-                error =
-                    "Response thành công không được chứa ErrorCode.";
+                    "RequestId của response không khớp với " +
+                    "request hiện tại.";
 
                 return false;
             }

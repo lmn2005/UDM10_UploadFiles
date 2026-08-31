@@ -106,7 +106,8 @@ namespace UDM10.Server
                     RequestId = requestId,
                     Status = UploadStatus.Completed,
                     ErrorCode = ErrorCode.None,
-                    ErrorMessage = "Upload thành công."
+                    ErrorMessage = "Upload thành công.",
+                    SavedFileName = Path.GetFileName(savedPath)
                 };
 
                 await ProtocolWriter.WriteResponseAsync(
