@@ -54,6 +54,11 @@ namespace UDM10.Client
                 _viewModel.RetryFile(item);
         }
 
+        private void BtnClearCompleted_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.ClearCompletedFiles();
+        }
+
         private bool TryApplyServerEndpoint()
         {
             string serverIp = TxtServerIp.Text.Trim();

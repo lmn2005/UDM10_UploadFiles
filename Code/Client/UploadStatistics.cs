@@ -69,6 +69,30 @@ namespace UDM10.Client
             }
         }
 
+        // Gỡ 1 file khỏi thống kê khi bị xóa khỏi danh sách hiển thị (ví dụ: Xóa các mục hoàn tất).
+        // Không đụng đến file thật trên Server, chỉ đồng bộ lại số liệu phía Client.
+        public void UnregisterFile(string filePath)
+        {
+            string normalizedPath = NormalizePath(filePath);
+            bool changed;
+
+            lock (_syncRoot)
+            {
+                changed = _files.Remove(normalizedPath);
+
+                if (changed)
+                {
+                    EnsureStopwatchState();
+                    Recalculate();
+                }
+            }
+
+            if (changed)
+            {
+                NotifyAllProperties();
+            }
+        }
+
         public void UpdateFile(
             string filePath,
             UploadItemStatus status,
