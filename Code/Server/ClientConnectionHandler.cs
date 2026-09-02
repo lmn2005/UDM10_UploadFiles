@@ -100,6 +100,7 @@ namespace UDM10.Server
                     stream,
                     receiveTimeoutMs,
                     serverCancellationToken);
+                string savedFileName = Path.GetFileName(savedPath);
 
                 UploadResponse completedResponse = new()
                 {
@@ -107,7 +108,7 @@ namespace UDM10.Server
                     Status = UploadStatus.Completed,
                     ErrorCode = ErrorCode.None,
                     ErrorMessage = "Upload thành công.",
-                    SavedFileName = Path.GetFileName(savedPath)
+                    SavedFileName = savedFileName
                 };
 
                 await ProtocolWriter.WriteResponseAsync(
@@ -117,8 +118,8 @@ namespace UDM10.Server
 
                 _logger.LogInfo(
                     $"[{clientEndPoint}] " +
-                    $"Upload completed: " +
-                    $"{savedPath}");
+                    $"Upload completed. " +
+                    $"SavedFileName={savedFileName}");
             }
             catch (OperationCanceledException)
             {

@@ -30,6 +30,12 @@ namespace UDM10.Client
         public bool HasCompletedFiles =>
             FileList.Any(file => file.Status == UploadItemStatus.Completed);
 
+        public bool CanCancelAll =>
+            FileList.Any(file => file.CanCancel);
+
+        public bool CanRetryAllFailed =>
+            FileList.Any(file => file.CanRetry);
+
         public MainViewModel()
         {
             _settings = ClientSettings.Load();
@@ -83,6 +89,8 @@ namespace UDM10.Client
                 Statistics.RegisterFile(item.FilePath, item.FileSizeBytes);
                 StartUpload(item);
             }
+
+            NotifyActionStateChanged();
         }
 
         private void StartUpload(UploadItemViewModel item)
@@ -107,7 +115,7 @@ namespace UDM10.Client
                 Statistics.UpdateFile(item.FilePath, p.Status, p.BytesTransferred);
 
                 RefreshConnectionStatus();
-                OnPropertyChanged(nameof(HasCompletedFiles));
+                NotifyActionStateChanged();
             });
 
             _uploadManager.EnqueueFile(item.FilePath, progress, item.UploadCancellationToken);
@@ -143,6 +151,7 @@ namespace UDM10.Client
         {
             if (!item.CanCancel) return;
             item.RequestCancellation();
+            NotifyActionStateChanged();
         }
 
         public void RetryFile(UploadItemViewModel item)
@@ -151,6 +160,41 @@ namespace UDM10.Client
             item.PrepareForRetry();
             Statistics.ResetForRetry(item.FilePath);
             StartUpload(item);
+            NotifyActionStateChanged();
+        }
+
+        // Hủy các file đang chờ hoặc đang tải tại thời điểm người dùng thao tác.
+        // Danh sách được chụp trước để callback tiến trình không làm thay đổi vòng lặp.
+        public int CancelAllActiveFiles()
+        {
+            UploadItemViewModel[] cancellableFiles = FileList
+                .Where(file => file.CanCancel)
+                .ToArray();
+
+            foreach (UploadItemViewModel item in cancellableFiles)
+            {
+                item.RequestCancellation();
+            }
+
+            NotifyActionStateChanged();
+            return cancellableFiles.Length;
+        }
+
+        // Đưa toàn bộ file Error hoặc Cancelled về Waiting rồi xếp lại vào queue.
+        // PrepareForRetry đổi trạng thái ngay nên thao tác lặp không tạo upload trùng.
+        public int RetryAllFailedFiles()
+        {
+            UploadItemViewModel[] retryableFiles = FileList
+                .Where(file => file.CanRetry)
+                .ToArray();
+
+            foreach (UploadItemViewModel item in retryableFiles)
+            {
+                RetryFile(item);
+            }
+
+            NotifyActionStateChanged();
+            return retryableFiles.Length;
         }
 
         // Xóa các file Completed khỏi danh sách hiển thị và thống kê phía Client.
@@ -168,7 +212,7 @@ namespace UDM10.Client
                 item.Dispose();
             }
 
-            OnPropertyChanged(nameof(HasCompletedFiles));
+            NotifyActionStateChanged();
         }
 
         public async ValueTask DisposeAsync()
@@ -195,6 +239,13 @@ namespace UDM10.Client
             {
                 return string.Equals(firstPath, secondPath, StringComparison.OrdinalIgnoreCase);
             }
+        }
+
+        private void NotifyActionStateChanged()
+        {
+            OnPropertyChanged(nameof(HasCompletedFiles));
+            OnPropertyChanged(nameof(CanCancelAll));
+            OnPropertyChanged(nameof(CanRetryAllFailed));
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

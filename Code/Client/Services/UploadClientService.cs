@@ -266,26 +266,23 @@ namespace UDM10.Client.Services
                 }
 
                 if (finalResponse.Status ==
-    UploadStatus.Completed)
+                    UploadStatus.Completed)
                 {
                     string savedFileName =
-                        finalResponse.SavedFileName;
+                        finalResponse.SavedFileName!;
 
                     string message =
                         string.IsNullOrWhiteSpace(
                             finalResponse.ErrorMessage)
-                            ? $"Upload thành công: {savedFileName}"
-                            : finalResponse.ErrorMessage;
+                            ? "Upload thành công."
+                            : finalResponse.ErrorMessage.Trim();
 
-                    if (!string.Equals(
+                    message += string.Equals(
                             savedFileName,
                             fileInfo.Name,
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        message +=
-                            $" File đã được lưu với tên: " +
-                            $"{savedFileName}.";
-                    }
+                            StringComparison.OrdinalIgnoreCase)
+                        ? $" Tên file Server đã lưu: {savedFileName}."
+                        : $" Server đổi tên file thành: {savedFileName}.";
 
                     return UploadResult.Success(message);
                 }

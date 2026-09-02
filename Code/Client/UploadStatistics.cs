@@ -10,8 +10,6 @@ namespace UDM10.Client
         private readonly object _syncRoot = new();
         private readonly Dictionary<string, FileMetric> _files =
             new(StringComparer.OrdinalIgnoreCase);
-        private readonly Stopwatch _stopwatch = new();
-
         private int _totalFiles;
         private int _completedFiles;
         private int _errorFiles;
@@ -58,7 +56,6 @@ namespace UDM10.Client
 
                 if (changed)
                 {
-                    EnsureStopwatchState();
                     Recalculate();
                 }
             }
@@ -82,7 +79,6 @@ namespace UDM10.Client
 
                 if (changed)
                 {
-                    EnsureStopwatchState();
                     Recalculate();
                 }
             }
@@ -105,7 +101,7 @@ namespace UDM10.Client
             {
                 if (_files.TryGetValue(normalizedPath, out FileMetric? metric))
                 {
-                    metric.Status = status;
+                    metric.UpdateStatus(status);
 
                     if (bytesTransferred.HasValue)
                     {
@@ -117,7 +113,6 @@ namespace UDM10.Client
                         metric.TransferredBytes = metric.FileSize;
                     }
 
-                    EnsureStopwatchState();
                     Recalculate();
                     changed = true;
                 }
@@ -138,9 +133,8 @@ namespace UDM10.Client
             {
                 if (_files.TryGetValue(normalizedPath, out FileMetric? metric))
                 {
-                    metric.Status = UploadItemStatus.Waiting;
                     metric.TransferredBytes = 0;
-                    EnsureStopwatchState();
+                    metric.Restart();
                     Recalculate();
                     changed = true;
                 }
@@ -164,20 +158,6 @@ namespace UDM10.Client
             OnPropertyChanged(nameof(SummaryText));
         }
 
-        private void EnsureStopwatchState()
-        {
-            bool hasPendingFiles = _files.Values.Any(metric => !IsTerminal(metric.Status));
-
-            if (hasPendingFiles && !_stopwatch.IsRunning)
-            {
-                _stopwatch.Start();
-            }
-            else if (!hasPendingFiles && _stopwatch.IsRunning)
-            {
-                _stopwatch.Stop();
-            }
-        }
-
         private void Recalculate()
         {
             _totalFiles = _files.Count;
@@ -186,7 +166,9 @@ namespace UDM10.Client
             _cancelledFiles = _files.Values.Count(metric => metric.Status == UploadItemStatus.Cancelled);
             _totalBytes = _files.Values.Sum(metric => metric.FileSize);
             _transferredBytes = _files.Values.Sum(metric => metric.TransferredBytes);
-            _elapsed = _stopwatch.Elapsed;
+            _elapsed = _files.Count == 0
+                ? TimeSpan.Zero
+                : _files.Values.Max(metric => metric.Elapsed);
             _averageSpeedKBps = _elapsed.TotalSeconds > 0
                 ? _transferredBytes / 1024d / _elapsed.TotalSeconds
                 : 0;
@@ -226,6 +208,8 @@ namespace UDM10.Client
 
         private sealed class FileMetric
         {
+            private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
+
             public FileMetric(long fileSize, UploadItemStatus status)
             {
                 FileSize = fileSize;
@@ -235,6 +219,27 @@ namespace UDM10.Client
             public long FileSize { get; }
             public long TransferredBytes { get; set; }
             public UploadItemStatus Status { get; set; }
+            public TimeSpan Elapsed => _stopwatch.Elapsed;
+
+            public void UpdateStatus(UploadItemStatus status)
+            {
+                Status = status;
+
+                if (IsTerminal(status))
+                {
+                    _stopwatch.Stop();
+                }
+                else if (!_stopwatch.IsRunning)
+                {
+                    _stopwatch.Start();
+                }
+            }
+
+            public void Restart()
+            {
+                Status = UploadItemStatus.Waiting;
+                _stopwatch.Restart();
+            }
         }
     }
 }
