@@ -26,6 +26,10 @@ namespace UDM10.Client
             set { _connectionStatus = value; OnPropertyChanged(); }
         }
 
+        // Dùng để bật/tắt nút "Xóa các mục hoàn tất" trên giao diện.
+        public bool HasCompletedFiles =>
+            FileList.Any(file => file.Status == UploadItemStatus.Completed);
+
         public MainViewModel()
         {
             _settings = ClientSettings.Load();
@@ -103,6 +107,7 @@ namespace UDM10.Client
                 Statistics.UpdateFile(item.FilePath, p.Status, p.BytesTransferred);
 
                 RefreshConnectionStatus();
+                OnPropertyChanged(nameof(HasCompletedFiles));
             });
 
             _uploadManager.EnqueueFile(item.FilePath, progress, item.UploadCancellationToken);
@@ -146,6 +151,24 @@ namespace UDM10.Client
             item.PrepareForRetry();
             Statistics.ResetForRetry(item.FilePath);
             StartUpload(item);
+        }
+
+        // Xóa các file Completed khỏi danh sách hiển thị và thống kê phía Client.
+        // Chỉ xóa lịch sử hiển thị, không đụng đến file thật đã lưu trên Server.
+        public void ClearCompletedFiles()
+        {
+            var completedItems = FileList
+                .Where(file => file.Status == UploadItemStatus.Completed)
+                .ToList();
+
+            foreach (UploadItemViewModel item in completedItems)
+            {
+                FileList.Remove(item);
+                Statistics.UnregisterFile(item.FilePath);
+                item.Dispose();
+            }
+
+            OnPropertyChanged(nameof(HasCompletedFiles));
         }
 
         public async ValueTask DisposeAsync()
