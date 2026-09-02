@@ -60,6 +60,8 @@ Quy tắc validation:
 
 ### 2.3. UploadResponse
 
+Response `Ready` cho biết Server đã chấp nhận metadata và sẵn sàng nhận dữ liệu file:
+
 ```json
 {
   "protocolVersion": "V3",
@@ -70,7 +72,20 @@ Quy tắc validation:
 }
 ```
 
-Client chỉ chấp nhận response khi `protocolVersion` và `requestId` khớp request hiện tại. Response `Error` phải có mã lỗi khác `None` và nội dung lỗi; response thành công không được chứa mã lỗi.
+Sau khi nhận đủ byte và xác minh đúng SHA-256, Server trả `Completed` cùng tên file thực tế đã lưu:
+
+```json
+{
+  "protocolVersion": "V3",
+  "requestId": "0f3d1e5a680a40a0a386957e25f88b0b",
+  "status": 3,
+  "errorCode": 0,
+  "errorMessage": "Upload thành công.",
+  "savedFileName": "bao-cao_1.pdf"
+}
+```
+
+Client chỉ chấp nhận response khi `protocolVersion` và `requestId` khớp request hiện tại. Response `Completed` bắt buộc có `savedFileName` hợp lệ. Đây chỉ là tên file, không chứa thư mục hay đường dẫn tuyệt đối trên Server. Client luôn đưa tên này vào thông báo hoàn tất và nói rõ khi Server phải đổi tên vì trùng. Response `Ready` và `Error` không được chứa tên file; response `Error` phải có mã lỗi khác `None` và nội dung lỗi. Response thành công không được chứa mã lỗi.
 
 ### 2.4. UploadStatus
 

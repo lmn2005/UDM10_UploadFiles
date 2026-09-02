@@ -211,8 +211,7 @@ namespace UDM10.Shared
                             "Response Ready không được chứa ErrorCode.");
                     }
 
-                    if (!string.IsNullOrEmpty(
-                            response.SavedFileName))
+                    if (response.SavedFileName is not null)
                     {
                         return ResponseFail(
                             "Response Ready không được chứa SavedFileName.");
@@ -253,8 +252,7 @@ namespace UDM10.Shared
                             "Response Error phải có ErrorMessage.");
                     }
 
-                    if (!string.IsNullOrEmpty(
-                            response.SavedFileName))
+                    if (response.SavedFileName is not null)
                     {
                         return ResponseFail(
                             "Response Error không được chứa SavedFileName.");

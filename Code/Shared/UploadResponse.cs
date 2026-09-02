@@ -24,8 +24,7 @@ namespace UDM10.Shared
         public string ErrorMessage { get; set; } =
             string.Empty;
 
-    
-        public string SavedFileName { get; set; } =
-            string.Empty;
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? SavedFileName { get; set; }
     }
 }
