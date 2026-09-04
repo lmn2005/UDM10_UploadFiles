@@ -1,15 +1,13 @@
-using System.ComponentModel;
 using System.Net;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace UDM10.Client
 {
     public partial class MainWindow : Window
     {
         private readonly MainViewModel _viewModel = new();
-        private bool _allowClose;
-        private bool _isClosing;
 
         public MainWindow()
         {
@@ -53,6 +51,7 @@ namespace UDM10.Client
             if (sender is Button btn && btn.Tag is UploadItemViewModel item)
                 _viewModel.RetryFile(item);
         }
+
         private void BtnCancelAll_Click(object sender, RoutedEventArgs e)
         {
             int count = _viewModel.CancelAllActiveFiles();
@@ -73,6 +72,7 @@ namespace UDM10.Client
         {
             _viewModel.ClearCompletedFiles();
         }
+
         private bool TryApplyServerEndpoint()
         {
             string serverIp = TxtServerIp.Text.Trim();
@@ -100,34 +100,9 @@ namespace UDM10.Client
             return true;
         }
 
-        private async void Window_Closing(
-            object? sender,
-            CancelEventArgs e)
+        private async void Window_Closed(object? sender, EventArgs e)
         {
-            if (_allowClose)
-            {
-                return;
-            }
-
-            e.Cancel = true;
-
-            if (_isClosing)
-            {
-                return;
-            }
-
-            _isClosing = true;
-            IsEnabled = false;
-
-            try
-            {
-                await _viewModel.DisposeAsync();
-            }
-            finally
-            {
-                _allowClose = true;
-                Close();
-            }
+            await _viewModel.DisposeAsync();
         }
     }
 }
