@@ -19,8 +19,25 @@ namespace UDM10.Client
             ? FileName.Substring(0, 27) + "..."
             : FileName;
 
-        // Mỗi file giữ riêng 1 CancellationTokenSource để hủy độc lập,
-        // không ảnh hưởng đến các file khác đang chạy song song
+        private string? _savedFileName;
+        public string? SavedFileName
+        {
+            get => _savedFileName;
+            set
+            {
+                _savedFileName = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SavedFileNameDisplay));
+            }
+        }
+
+        // Chỉ hiển thị khi Server đổi tên do trùng (ví dụ report.pdf -> report_1.pdf).
+        // Nếu tên không đổi hoặc chưa có phản hồi từ Server, để trống.
+        public string SavedFileNameDisplay =>
+            !string.IsNullOrEmpty(SavedFileName) && SavedFileName != FileName
+                ? $"→ {SavedFileName}"
+                : "";
+
         public CancellationTokenSource CancellationTokenSource { get; private set; } = new();
         public CancellationToken UploadCancellationToken => CancellationTokenSource.Token;
 
@@ -43,7 +60,6 @@ namespace UDM10.Client
             }
         }
 
-        // Tự động đổi đơn vị: dưới 1024 KB/s hiển thị KB/s, trên đó hiển thị MB/s
         public string SpeedText => _speedKBps >= 1024
             ? $"{_speedKBps / 1024.0:F2} MB/s"
             : $"{_speedKBps:F0} KB/s";
@@ -64,13 +80,11 @@ namespace UDM10.Client
                 _status = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(StatusText));
-                // Báo cho giao diện biết cần vẽ lại nút Cancel/Retry theo trạng thái mới
                 OnPropertyChanged(nameof(CanCancel));
                 OnPropertyChanged(nameof(CanRetry));
             }
         }
 
-        // Chuẩn hóa hiển thị trạng thái bằng tiếng Việt
         public string StatusText => _status switch
         {
             UploadItemStatus.Waiting => "Đang chờ",
@@ -88,11 +102,9 @@ namespace UDM10.Client
             set { _message = value; OnPropertyChanged(); }
         }
 
-        // Cho phép hủy cả file đang chờ và file đang upload.
         public bool CanCancel => (Status == UploadItemStatus.Waiting || Status == UploadItemStatus.Uploading)
             && !CancellationTokenSource.IsCancellationRequested;
 
-        // Nút Retry chỉ bật khi Error hoặc Cancelled
         public bool CanRetry => Status == UploadItemStatus.Error || Status == UploadItemStatus.Cancelled;
 
         public UploadItemViewModel(string filePath)
@@ -117,13 +129,12 @@ namespace UDM10.Client
 
         public void PrepareForRetry()
         {
-            // Khóa ngay lập tức: đổi Status trước, khiến CanRetry = false
-            // ngay khi hàm này chạy xong, chặn double-click Retry tạo 2 lượt upload.
             CancellationTokenSource.Dispose();
             CancellationTokenSource = new CancellationTokenSource();
             PercentComplete = 0;
             SpeedKBps = 0;
             BytesTransferred = 0;
+            SavedFileName = null;
             Status = UploadItemStatus.Waiting;
             Message = "Đang chờ lượt upload lại...";
             OnPropertyChanged(nameof(CanCancel));

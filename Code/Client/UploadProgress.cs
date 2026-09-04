@@ -10,5 +10,6 @@
         public UploadItemStatus Status { get; set; }
         public ConnectionStatus? ConnectionStatus { get; set; }
         public string? Message { get; set; }
+        public string? SavedFileName { get; set; }
     }
 }
