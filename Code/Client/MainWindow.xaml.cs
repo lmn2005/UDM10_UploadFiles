@@ -53,12 +53,26 @@ namespace UDM10.Client
             if (sender is Button btn && btn.Tag is UploadItemViewModel item)
                 _viewModel.RetryFile(item);
         }
+        private void BtnCancelAll_Click(object sender, RoutedEventArgs e)
+        {
+            int count = _viewModel.CancelAllActiveFiles();
+            if (count == 0)
+                MessageBox.Show("Không có file nào đang tải để hủy.", "Thông báo",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void BtnRetryAll_Click(object sender, RoutedEventArgs e)
+        {
+            int count = _viewModel.RetryAllFailedFiles();
+            if (count == 0)
+                MessageBox.Show("Không có file nào bị lỗi để thử lại.", "Thông báo",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+        }
 
         private void BtnClearCompleted_Click(object sender, RoutedEventArgs e)
         {
             _viewModel.ClearCompletedFiles();
         }
-
         private bool TryApplyServerEndpoint()
         {
             string serverIp = TxtServerIp.Text.Trim();
