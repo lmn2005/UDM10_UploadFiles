@@ -284,7 +284,7 @@ namespace UDM10.Client.Services
                         ? $" Tên file Server đã lưu: {savedFileName}."
                         : $" Server đổi tên file thành: {savedFileName}.";
 
-                    return UploadResult.Success(message);
+                    return UploadResult.Success(message, savedFileName);
                 }
 
                 if (finalResponse.Status ==

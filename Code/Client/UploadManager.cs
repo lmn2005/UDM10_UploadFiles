@@ -190,16 +190,17 @@ namespace UDM10.Client
                     effectiveToken);
 
                 terminalProgress = effectiveToken.IsCancellationRequested
-                    ? CreateCancelledProgress()
-                    : new UploadProgress
-                    {
-                        PercentComplete = result.IsSuccess ? 100 : 0,
-                        Status = result.IsSuccess ? UploadItemStatus.Completed : UploadItemStatus.Error,
-                        ConnectionStatus = result.IsSuccess
-                            ? ConnectionStatus.Disconnected
-                            : ConnectionStatus.Error,
-                        Message = result.Message
-                    };
+                  ? CreateCancelledProgress()
+                  : new UploadProgress
+                  {
+                     PercentComplete = result.IsSuccess ? 100 : 0,
+                     Status = result.IsSuccess ? UploadItemStatus.Completed : UploadItemStatus.Error,
+                     ConnectionStatus = result.IsSuccess
+                        ? ConnectionStatus.Disconnected
+                        : ConnectionStatus.Error,
+                     Message = result.Message,
+                     SavedFileName = result.SavedFileName
+                  };
             }
             catch (OperationCanceledException) when (effectiveToken.IsCancellationRequested)
             {
