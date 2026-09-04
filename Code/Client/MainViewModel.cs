@@ -105,6 +105,7 @@ namespace UDM10.Client
                 }
                 item.Status = p.Status;
                 item.Message = p.Message ?? "";
+                item.SavedFileName = p.SavedFileName;
 
                 if (p.ConnectionStatus.HasValue)
                 {

@@ -1,15 +1,13 @@
-using System.ComponentModel;
 using System.Net;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace UDM10.Client
 {
     public partial class MainWindow : Window
     {
         private readonly MainViewModel _viewModel = new();
-        private bool _allowClose;
-        private bool _isClosing;
 
         public MainWindow()
         {
@@ -54,6 +52,22 @@ namespace UDM10.Client
                 _viewModel.RetryFile(item);
         }
 
+        private void BtnCancelAll_Click(object sender, RoutedEventArgs e)
+        {
+            int count = _viewModel.CancelAllActiveFiles();
+            if (count == 0)
+                MessageBox.Show("Không có file nào đang tải để hủy.", "Thông báo",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void BtnRetryAll_Click(object sender, RoutedEventArgs e)
+        {
+            int count = _viewModel.RetryAllFailedFiles();
+            if (count == 0)
+                MessageBox.Show("Không có file nào bị lỗi để thử lại.", "Thông báo",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
         private void BtnClearCompleted_Click(object sender, RoutedEventArgs e)
         {
             _viewModel.ClearCompletedFiles();
@@ -86,34 +100,9 @@ namespace UDM10.Client
             return true;
         }
 
-        private async void Window_Closing(
-            object? sender,
-            CancelEventArgs e)
+        private async void Window_Closed(object? sender, EventArgs e)
         {
-            if (_allowClose)
-            {
-                return;
-            }
-
-            e.Cancel = true;
-
-            if (_isClosing)
-            {
-                return;
-            }
-
-            _isClosing = true;
-            IsEnabled = false;
-
-            try
-            {
-                await _viewModel.DisposeAsync();
-            }
-            finally
-            {
-                _allowClose = true;
-                Close();
-            }
+            await _viewModel.DisposeAsync();
         }
     }
 }
