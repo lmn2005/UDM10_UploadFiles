@@ -1,25 +1,184 @@
-# UDM10 — Upload nhiều file
+# UDM_10 — Upload nhiều file
 
-Ứng dụng Client–Server truyền nhiều file qua TCP. Client WPF hỗ trợ chọn hoặc kéo thả file, hàng đợi tối đa 3 upload đồng thời, tiến độ/tốc độ riêng, Cancel và Retry. Server nhận đúng số byte, kiểm tra SHA-256, dọn file `.part` khi lỗi và đổi tên file trùng mà không ghi đè.
+Đồ án môn **Lập trình mạng**: ứng dụng desktop C# WPF cho phép chọn/kéo thả nhiều file và upload tới TCP Server. Client và Server chạy ở **hai tiến trình riêng**, giao tiếp qua mạng thật. Đây không phải Web App.
 
-## Môi trường chính thức
+- Mã đề tài: **UDM_10**; tên solution/assembly trong code: `UDM10`.
+- Mã lớp: **304**; nhóm: **11** (khôi phục từ README trong lịch sử Git; cần đối chiếu CourseCode/GroupCode chính thức trước khi nộp).
+- Repository: [lmn2005/UDM10_UploadFiles](https://github.com/lmn2005/UDM10_UploadFiles).
+- Video báo cáo/demo: **CHƯA CÓ LINK** — bổ sung link chia sẻ Google Drive/YouTube tại đây và trong báo cáo cuối kỳ.
+- Trạng thái rà soát 05/09/2026: build thành công; đã kiểm tra kỹ thuật TCP trên macOS; **chưa đủ bằng chứng nghiệm thu Windows, stress test và hồ sơ cuối kỳ**. Báo cáo chi tiết `UDM10_Bao_cao_ra_soat_loi.docx` được lưu và chia sẻ riêng ngoài repository.
 
-- Build, chạy, demo và lấy bằng chứng nghiệm thu trên Windows 10/11 hoặc Windows VM.
-- Client dùng WPF nên không chạy trên macOS/Linux.
-- Kết quả build hoặc benchmark ngoài Windows chỉ dùng để kiểm tra kỹ thuật, không phải bằng chứng nghiệm thu.
+## 1. Thành viên và phân công
 
-## Cấu trúc
+MSSV/họ tên dưới đây lấy từ README lịch sử Git. Vai trò là đầu mối phụ trách hiện tại, không thay thế chứng cứ đóng góp bằng commit, tài liệu và kết quả test.
 
-- `Code/Client`: ứng dụng WPF.
-- `Code/Server`: TCP Server.
-- `Code/Shared`: Protocol v3 dùng chung.
-- `Benchmark`: công cụ benchmark TCP với tiến trình Server riêng.
-- `Extra`: screenshot, log và kết quả hiệu năng.
+| MSSV | Thành viên | Phần phụ trách |
+| --- | --- | --- |
+| 087205010642 | Nguyễn Tấn Hiệp | Client TCP, scheduler/queue, Cancel/Retry, tích hợp |
+| 075205019210 | Phạm Anh Tuấn | Shared protocol, framing, validation, tài liệu kỹ thuật |
+| 095205005482 | Lê Văn Nhựt | WPF, kéo thả/chọn file, trạng thái, các nút thao tác, demo GUI |
+| 051206006174 | Huỳnh Anh Kiệt | TCP Server, session, timeout, shutdown, logging |
+| 045205006605 | Võ Nhật Linh | Chunk transfer, storage, SHA-256, thống kê và performance |
+| 054206006612 | Huỳnh Việt Tiến | Theo thông tin nhóm cung cấp: không thực hiện phần việc; bảng tuần 1–4 ghi trễ hạn, tuần 5 không giao việc. Chưa ghi nhận commit mang tên/tài khoản nhận diện được của thành viên này trong lịch sử Git local đã kiểm tra. |
 
-Tài liệu đầy đủ về kiến trúc, Protocol v3, cấu hình, build, publish, chạy hai máy và benchmark nằm tại [Code/README.md](Code/README.md).
+Công việc tồn được chia cho **5 thành viên thực hiện**, với khối lượng dự kiến tương đương; không ghi nhận là đã xong khi chưa có sản phẩm. Chi tiết trong tài liệu `UDM10_Phan_cong_sua_loi.docx` được nhóm chia sẻ riêng. Đầu mối sửa: Tấn Hiệp (timeout gửi, hash trước kết nối); Anh Tuấn (config và metadata); Nhựt (GUI và Retry endpoint); Anh Kiệt (logging); Nhật Linh (tên dài và thống kê). Danh sách trên giữ thông tin đăng ký ban đầu; trạng thái thành viên chính thức cần khớp hồ sơ môn học.
 
-## Lưu ý Protocol v3
+## 2. Mục tiêu, phạm vi và chức năng
 
-- Request upload mới dùng status `Request`; Retry tạo một request mới.
-- Cancel trên Client hủy cancellation token và đóng kết nối upload hiện tại. Server phát hiện luồng bị ngắt và dọn `.part`.
-- Không có Pause/Resume.
+Mục tiêu là truyền nhiều file ổn định, giữ GUI phản hồi, theo dõi kết quả từng file và xử lý lỗi độc lập.
+
+| Chức năng | Hiện trạng |
+| --- | --- |
+| Chọn hoặc kéo thả một/nhiều file | Có code WPF; chỉ nhận file, bỏ qua thư mục; tự xếp hàng khi thêm |
+| Trạng thái từng file | Waiting, Uploading, Completed, Error, Cancelled |
+| Tiến độ và tốc độ từng file | Có; tốc độ là trung bình từ khi bắt đầu gửi dữ liệu, tính theo 1024 byte |
+| Hàng đợi và upload đồng thời | Tối đa **3 file/Client**; cấu hình 1–3; giá trị trên 3 bị chặn về 3 |
+| Lỗi một file không dừng các file khác | Có cơ chế xử lý độc lập; cần test hồi quy qua WPF trên Windows |
+| File trùng tên | Thêm `_1`, `_2`, … trước phần mở rộng; không ghi đè |
+| Toàn vẹn file | Nhận đúng số byte đã khai báo, kiểm tra SHA-256, đổi `.part` thành file chính thức |
+| Cancel/Retry từng file | Có; Retry truyền lại từ đầu bằng request/kết nối mới |
+| Xóa các mục hoàn tất | Có nút GUI; xóa lịch sử Client, không xóa file trên Server |
+| Hủy tất cả / Thử lại tất cả | Có hàm trong ViewModel nhưng **chưa nối nút GUI** |
+| Tên file thực tế Server đã lưu | Có trong thông báo Completed; cột thông báo hiện hẹp, cần cải thiện khả năng đọc |
+
+Không có Pause/Resume, upload thư mục, đăng nhập, TLS, cloud storage hoặc khôi phục queue sau khi đóng Client. SHA-256 dùng kiểm tra nội dung, không thay thế mã hóa/xác thực. Server chưa có giới hạn tổng số kết nối/toàn bộ Client; mức 3 chỉ áp dụng cho từng Client.
+
+## 3. Kiến trúc và giao tiếp
+
+```text
+WPF GUI -> MainViewModel -> UploadManager / UploadQueueService
+                              | tối đa 3 lượt upload/Client
+                              v
+                      UploadClientService
+                              | TCP, 1 kết nối/file
+                              v
+TcpListener -> ClientConnectionHandler -> FileStorageService
+                                          -> TemporaryFileManager
+                                          -> DuplicateFileNameResolver
+Client và Server cùng dùng Code/Shared cho protocol và validation.
+```
+
+Protocol **V3**, TCP port mặc định **9000**. Một phiên hiện gồm:
+
+1. Client kết nối TCP; tính SHA-256 file. Hiện hash được tính **sau khi kết nối** — cần sửa vì file lớn/đĩa chậm có thể vượt timeout chờ metadata của Server.
+2. Gửi metadata: **4 byte length little-endian + JSON UTF-8**, payload từ 1 đến 4096 byte.
+3. Server kiểm tra request, trả `Ready` hoặc `Error`.
+4. Sau `Ready`, gửi raw binary; Server đọc đúng `fileSize` byte, ghi file tạm theo chunk và tính hash.
+5. Hash đúng thì đổi thành file chính thức, trả `Completed` kèm `savedFileName`. Lỗi thì dọn file tạm nếu có thể và trả `Error` khi kết nối còn sử dụng được.
+6. Đóng stream/socket sau từng file. Không có heartbeat hoặc kết nối dùng chung lâu dài. Cancel hủy token và đóng kết nối, **không gửi message Cancel**. Retry hiện gửi status `Request` với request ID mới.
+
+Ví dụ request file rỗng:
+
+```json
+{"protocolVersion":"V3","requestId":"demo-001","fileName":"empty.txt","fileSize":0,"fileHash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","status":1}
+```
+
+Response gồm `protocolVersion`, `requestId`, `status`, `errorCode`, `errorMessage`; `savedFileName` chỉ có khi Completed. Status: Request=1, Ready=2, Completed=3, Error=4, Cancel=5 (dự phòng), Retry=6 (Server chấp nhận nhưng Client hiện gửi Request). Chi tiết message, enum và quy tắc validation ở [Code/README.md](Code/README.md).
+
+## 4. Môi trường, cấu hình và hướng dẫn chạy
+
+Môi trường demo: **Windows 10/11 hoặc Windows VM, .NET 10 SDK**. WPF không chạy trên macOS/Linux; cross-build không chứng minh GUI hoạt động. Git để lấy source; Visual Studio là tùy chọn nếu dùng CLI.
+
+Chạy PowerShell tại thư mục gốc repository:
+
+```powershell
+git clone https://github.com/lmn2005/UDM10_UploadFiles.git
+cd UDM10_UploadFiles
+dotnet restore .\Code\UDM10.sln
+dotnet build .\Code\UDM10.sln -c Release --no-restore
+```
+
+Chạy Server và Client trong hai cửa sổ PowerShell riêng, cùng tại thư mục gốc:
+
+```powershell
+# Cửa sổ 1
+dotnet run --project .\Code\Server\UDM10.Server.csproj -c Release
+```
+
+```powershell
+# Cửa sổ 2
+dotnet run --project .\Code\Client\UDM10.Client.csproj -c Release
+```
+
+Cấu hình trong `Code/Server/appsettings.json` và `Code/Client/appsettings.json`; build/run copy cấu hình vào output. Với bản publish, sửa file JSON bên cạnh ứng dụng đã publish. Nên khởi động lại sau khi đổi cấu hình.
+
+| Tham số | Server | Client |
+| --- | --- | --- |
+| `Network:ServerIp` | `0.0.0.0` | `127.0.0.1` |
+| `Network:Port` | 9000 | 9000 |
+| `Network:ConnectTimeoutMs` | Không dùng | 5000 |
+| `Network:ReceiveTimeoutMs` | 30000 | 30000 |
+| `Upload:ChunkSizeBytes` | 65536 | 65536 |
+| `Upload:MaxConcurrentFiles` | Không dùng | 3 |
+| `Upload:MaxAllowedSizeInBytes` | 10737418240 (10 GiB/file) | Không dùng |
+| `Upload:SaveDirectory` | `Uploads` | Không dùng để lưu file Server |
+
+Đường dẫn tương đối `Uploads` và `Logs/server_log.txt` tính từ **working directory của Server**. GUI có ô sửa IP/port; hiện chỉ áp dụng khi chọn/kéo file, chưa áp dụng khi bấm Retry. Client có timeout kết nối/chờ response nhưng **chưa có timeout ghi dữ liệu**.
+
+Chạy hai máy: Server bind `0.0.0.0`, lấy IPv4 LAN bằng `ipconfig`, cho phép inbound TCP 9000 trên firewall và nhập IP đó ở Client. `127.0.0.1` chỉ dùng cho cùng máy. Chọn/kéo file sẽ tự bắt đầu upload. Kịch bản LAN và lệnh publish chi tiết ở [hướng dẫn kỹ thuật](Code/README.md#5-chạy-clientserver-trên-hai-máy-hoặc-hai-windows-vm).
+
+## 5. Kiểm thử và bằng chứng
+
+Rà soát source tại commit `010025a`, ngày 05/09/2026:
+
+- `dotnet build Code/UDM10.sln -c Release`: **0 warning, 0 error** trên macOS/.NET SDK 10.0.400.
+- Probe Python ↔ tiến trình Server qua TCP loopback: 13/16 kiểm tra đạt, 3 kiểm tra phát hiện lỗi (tên dài, thiếu fileSize, thiếu log Disconnect). Đây không phải bộ functional test đầy đủ của WPF.
+- Benchmark TCP hiện có chạy kỹ thuật trên macOS: cả mức 32 MiB và 512 MiB đúng size/SHA-256, cleanup upload thiếu byte đạt. Không dùng kết quả này thay nghiệm thu Windows.
+- Probe các lớp Client bằng console .NET tái hiện thiếu write timeout, config null, lỗi file biến mất và sai thời gian phiên khi thêm các đợt upload nối tiếp.
+
+Bộ bằng chứng rà soát ngày 05/09 và log benchmark cũ tháng 8 đã được lưu riêng ngoài repository khi dọn ngày 06/09/2026. Các kết quả trên là ghi nhận lịch sử; cần chạy lại và lưu bằng chứng nghiệm thu hiện tại. Báo cáo DOCX tuần 1 là tài liệu lịch sử, có nội dung không còn khớp code .NET 10 hiện tại.
+
+Chạy benchmark chính thức trên Windows, tại gốc repository:
+
+```powershell
+dotnet build .\Code\UDM10.sln -c Release
+dotnet run --project .\Benchmark\Benchmark.csproj -c Release
+```
+
+Kết quả ghi vào `Extra/Performance/`. Công cụ benchmark truyền từng kịch bản tuần tự, chưa thay thế stress test nhiều Client.
+
+Bộ nghiệm thu còn phải thực hiện và lưu kết quả thực tế:
+
+| Nhóm test | Kịch bản bắt buộc |
+| --- | --- |
+| Functional GUI | Chọn/kéo 1, 3, 5, 20 file; progress/tốc độ từng file; tối đa 3; GUI phản hồi; lỗi một file không dừng file khác; trùng tên |
+| Điều khiển bổ sung | Cancel/Retry từng file, hàng loạt sau khi nối GUI, xóa Completed và kiểm tra thống kê |
+| Invalid data | Thiếu trường, size âm/vượt giới hạn, JSON/UTF-8 lỗi, length quá lớn, sai version, path traversal, checksum sai |
+| Disconnect | Ngắt Client, dừng Server giữa upload, timeout; không công nhận file thiếu; cleanup và upload lại |
+| Stress mức 1 | 10 file × 10 MiB, công bố số Client và concurrency thực tế |
+| Stress mức 2 | 30 file × 20 MiB, tăng số Client (đề xuất 3 Client × tối đa 3 upload) |
+| Performance | Tối thiểu hai mức tải, đo thời gian/throughput, CPU/RAM, tỷ lệ lỗi |
+
+Mỗi lần test phải ghi commit, OS/CPU/RAM/.NET, mạng, dữ liệu đầu vào, số Client, số lượt đồng thời, cách chạy, kết quả mong đợi/thực tế và đường dẫn log/ảnh/video. Khi đổi cả file size lẫn chunk size như benchmark hiện tại, không kết luận riêng ảnh hưởng của chunk size.
+
+## 6. Cấu trúc repository
+
+```text
+Code/       Client WPF, Server TCP, Shared, UDM10.sln, README kỹ thuật
+Benchmark/  Công cụ benchmark TCP với Server ở tiến trình riêng
+DOCX/       Hiện có báo cáo QA tuần 1 và phạm vi chưa test; thiếu báo cáo cuối kỳ
+PPTX/       Hiện có README; chưa có slide .pptx
+Extra/      Ảnh bằng chứng, performance và thư mục sơ đồ kiến trúc
+README.md
+.gitignore
+```
+
+## 7. Giới hạn và việc chưa hoàn thành
+
+Các lỗi còn mở trong báo cáo Word rà soát được chia sẻ riêng gồm: timeout chiều gửi; hash sau connect; config/file lỗi có thể thoát GUI; log lỗi chưa được cô lập và thiếu Disconnect; thiếu nút hàng loạt; Retry dùng endpoint cũ; tên dài; trường bắt buộc bị bỏ sót; thống kê thời gian phiên chưa đúng. Chưa xác nhận phục hồi `.part` sau khi tiến trình Server bị kill/mất điện; code hiện không quét dọn file cũ khi khởi động.
+
+Chưa có bằng chứng Windows WPF/LAN, stress hai mức, báo cáo cuối kỳ đúng mẫu, slide và video. Không đánh dấu toàn dự án đã nghiệm thu chỉ dựa vào build hoặc bảng tuần.
+
+## 8. Hồ sơ nộp và quy tắc Git
+
+- [ ] Kiểm tra hạn đóng và yêu cầu cụ thể trên hệ thống môn học.
+- [ ] Source code đầy đủ, cấu trúc `Code`, `DOCX`, `Extra`, `PPTX`, `README.md`, `.gitignore`.
+- [ ] Báo cáo **.docx tối đa 15 trang**, đúng mẫu thầy: lý do chọn đề tài; mục tiêu/phạm vi; lý thuyết; kiến trúc/protocol/message; thiết kế GUI; phân công; hướng dẫn chạy; kiểm thử; kết quả; khó khăn; kiến thức/kỹ năng học được; nội dung đã/chưa hoàn thành và hạn chế.
+- [ ] Slide **.pptx** phục vụ thuyết trình.
+- [ ] Video có âm thanh hoặc chú thích; mỗi thành viên trình bày phần việc và hiển thị khuôn mặt; link chia sẻ hoạt động trong README và báo cáo cuối kỳ.
+- [ ] GitHub có lịch sử tiến độ hàng tuần; mỗi người commit bằng tài khoản cá nhân, message mô tả thay đổi. Không có tiến độ 3 tuần liên tiếp vi phạm yêu cầu môn học. Không tạo commit giả/lùi ngày để bổ sung lịch sử.
+- [ ] Đóng gói đúng **CourseCode-GroupCode-ProjectCode.7z**. Chỉ dùng `304-Nhom11-UDM_10.7z` nếu Course xác nhận đúng các mã này.
+- [ ] Dọn bản sao dùng để đóng gói: `bin`, `obj`, `.vs`, dependency cache, output publish/build, `.DS_Store`, dữ liệu upload/demo sinh tự động không cần thiết. Giữ bằng chứng test cần thiết trong Extra; không đóng gói `.git`. `.gitignore` không tự loại các file này nếu nén trực tiếp thư mục làm việc.
+- [ ] Không đưa password/secret/private key vào source; dùng dữ liệu giả lập khi demo.
+
+Phân công chỉ được chuyển sang **hoàn thành** khi có commit/sản phẩm, test đạt và bằng chứng; người review kiểm tra chéo trước khi tích hợp.

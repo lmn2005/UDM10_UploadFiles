@@ -450,6 +450,3 @@ Code/**/ServerData/
 
 **/appsettings.Local.json
 **/.env
-
-# Allow specific logs
-!Extra/TestLogs/**/*.log

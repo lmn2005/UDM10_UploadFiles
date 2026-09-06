@@ -4,6 +4,8 @@ UDM10 là ứng dụng Client–Server truyền nhiều file qua TCP. Client WPF
 
 Môi trường chạy và demo chính thức là Windows 10/11. Có thể phát triển trên macOS, nhưng Client WPF phải được build và chạy trong Windows VM.
 
+> Rà soát 05/09/2026: tài liệu này mô tả thiết kế và cách chạy. Các lỗi còn mở, trạng thái nghiệm thu, phân công và hồ sơ nộp được ghi trong [README gốc](../README.md) và báo cáo `UDM10_Bao_cao_ra_soat_loi.docx` được chia sẻ riêng ngoài repository. Chưa xem toàn bộ các cam kết dưới đây là đã kiểm chứng trên Windows.
+
 ## 1. Kiến trúc
 
 - `Client`: ứng dụng WPF, lập hàng đợi và giới hạn tối đa 3 upload đồng thời. Lỗi hoặc thao tác Cancel của một file không làm dừng các file còn lại.
@@ -12,7 +14,7 @@ Môi trường chạy và demo chính thức là Windows 10/11. Có thể phát 
 
 Luồng upload của một file:
 
-1. Client tính SHA-256 và gửi `UploadRequest`.
+1. Client kết nối TCP, sau đó tính SHA-256 và gửi `UploadRequest`. Thứ tự hiện tại có nguy cơ vượt timeout metadata khi hash chậm; xem R02 trong báo cáo rà soát.
 2. Server kiểm tra framing, JSON và toàn bộ metadata.
 3. Server trả `Ready` hoặc `Error`. Client chỉ gửi dữ liệu sau khi nhận `Ready` hợp lệ.
 4. Client gửi đúng `fileSize` byte; Server đọc theo chunk và ghi vào file tạm `.part`.
@@ -213,8 +215,10 @@ Benchmark từ chối chạy chính thức ngoài Windows. Tham số `--allow-no
 
 Benchmark loopback xác nhận hiệu năng TCP của code trên một máy. Bài demo Client–Server trên hai máy/VM ở mục 5 vẫn phải thực hiện riêng để xác nhận firewall, IP LAN và hoạt động thực tế của giao diện WPF.
 
-## 7. Phạm vi hoàn thành
+## 7. Phạm vi đã triển khai và phần chờ nghiệm thu
 
 Code đã có scheduler tối đa 3 upload, trạng thái và thống kê từng phiên, xử lý tên trùng, đọc đúng `fileSize`, kiểm tra SHA-256, timeout và cleanup `.part`. Protocol request/response sử dụng chung cách serialize/deserialize và validation ở `Shared`.
 
 Việc demo hai máy, chụp bằng chứng, chạy lại benchmark TCP và xác nhận Release Candidate vẫn là bước nghiệm thu thủ công trên Windows; README không thay thế các bằng chứng đó.
+
+Các giới hạn đã phát hiện: thiếu timeout chiều gửi; GUI chưa có nút Hủy/Retry hàng loạt dù ViewModel có hàm; sửa endpoint chưa áp dụng khi Retry; log thiếu Disconnect; metadata thiếu fileSize có thể được nhận như file rỗng; tên dài có thể không tạo được .part. Chi tiết và các lỗi khác ở báo cáo rà soát, không được đánh dấu nghiệm thu trước khi sửa và test lại.
