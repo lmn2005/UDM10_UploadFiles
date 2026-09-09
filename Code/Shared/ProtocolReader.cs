@@ -1,14 +1,13 @@
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Text;
 using System.Text.Json;
-using System.Buffers.Binary;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace UDM10.Shared
 {
-
     public static class ProtocolReader
     {
         public static async Task<T?> ReadMetadataAsync<T>(
@@ -20,7 +19,6 @@ namespace UDM10.Shared
             string? json = await ReadMessageAsync(
                 stream,
                 cancellationToken);
-
 
             if (json is null)
             {
@@ -63,24 +61,25 @@ namespace UDM10.Shared
             Stream stream,
             CancellationToken cancellationToken)
         {
-            byte[] lengthBuffer = new byte[sizeof(int)];
+            byte[] lengthBuffer =
+                new byte[sizeof(int)];
 
-            int prefixBytes = await ReadExactAsync(
-                stream,
-                lengthBuffer,
-                cancellationToken);
-
+            int prefixBytes =
+                await ReadExactAsync(
+                    stream,
+                    lengthBuffer,
+                    cancellationToken);
 
             if (prefixBytes == 0)
             {
                 return null;
             }
 
-
             if (prefixBytes != lengthBuffer.Length)
             {
                 throw new EndOfStreamException(
-                    "Message bị cắt giữa chừng: thiếu length prefix.");
+                    "Message bị cắt giữa chừng: " +
+                    "thiếu length prefix.");
             }
 
             int length =
@@ -93,20 +92,22 @@ namespace UDM10.Shared
                     "Metadata length phải lớn hơn 0.");
             }
 
-            if (length > ProtocolConstants.MaxMetadataLength)
+            if (length >
+                ProtocolConstants.MaxMetadataLength)
             {
                 throw new InvalidDataException(
                     $"Metadata vượt quá giới hạn " +
                     $"{ProtocolConstants.MaxMetadataLength} byte.");
             }
 
-            byte[] data = new byte[length];
+            byte[] data =
+                new byte[length];
 
-            int payloadBytes = await ReadExactAsync(
-                stream,
-                data,
-                cancellationToken);
-
+            int payloadBytes =
+                await ReadExactAsync(
+                    stream,
+                    data,
+                    cancellationToken);
 
             if (payloadBytes != length)
             {
@@ -136,11 +137,12 @@ namespace UDM10.Shared
 
             while (totalRead < buffer.Length)
             {
-                int read = await stream.ReadAsync(
-                    buffer.AsMemory(
-                        totalRead,
-                        buffer.Length - totalRead),
-                    cancellationToken);
+                int read =
+                    await stream.ReadAsync(
+                        buffer.AsMemory(
+                            totalRead,
+                            buffer.Length - totalRead),
+                        cancellationToken);
 
                 if (read == 0)
                 {

@@ -39,7 +39,8 @@ namespace UDM10.Client.Services
                     "File không tồn tại.");
             }
 
-            FileInfo fileInfo = new(filePath);
+            FileInfo fileInfo =
+                new(filePath);
 
             try
             {
@@ -55,7 +56,8 @@ namespace UDM10.Client.Services
                             "Đang kết nối Server..."
                     });
 
-                using TcpClient client = new();
+                using TcpClient client =
+                    new();
 
                 using CancellationTokenSource connectCts =
                     CancellationTokenSource
@@ -85,15 +87,17 @@ namespace UDM10.Client.Services
                         ConnectionStatus =
                             ConnectionStatus.Connected,
                         Message =
-                            "Đã kết nối Server, đang kiểm tra file..."
+                            "Đã kết nối Server, " +
+                            "đang kiểm tra file..."
                     });
 
-               
+              
                 string fileHash =
                     await ChunkedFileSender
                         .ComputeHashAsync(
                             filePath,
                             cancellationToken);
+
 
                 UploadRequest request = new()
                 {
@@ -116,13 +120,25 @@ namespace UDM10.Client.Services
                         UploadStatus.Request
                 };
 
-              
+
+                var requestValidation =
+    MetadataValidator.Validate(
+        request,
+        0);
+
+                if (!requestValidation.IsValid)
+                {
+                    return UploadResult.Fail(
+                        $"Request không hợp lệ: " +
+                        $"{requestValidation.Message}");
+                }
+
                 await ProtocolWriter.WriteRequestAsync(
                     stream,
                     request,
                     cancellationToken);
 
-               
+
                 UploadResponse? readyResponse =
                     await ReadResponseAsync(
                         stream,
@@ -131,7 +147,7 @@ namespace UDM10.Client.Services
                 if (readyResponse is null)
                 {
                     return UploadResult.Fail(
-                        "Server không phản hồi Ready.");
+                        "Server không trả kết quả Ready.");
                 }
 
                 if (!IsValidResponse(
@@ -173,6 +189,8 @@ namespace UDM10.Client.Services
                             "Server đã sẵn sàng, " +
                             "đang gửi file..."
                     });
+
+               
 
                 int chunkSize =
                     _settings.Upload
@@ -245,6 +263,7 @@ namespace UDM10.Client.Services
                     cancellationToken);
 
                
+
                 UploadResponse? finalResponse =
                     await ReadResponseAsync(
                         stream,
@@ -281,10 +300,14 @@ namespace UDM10.Client.Services
                             savedFileName,
                             fileInfo.Name,
                             StringComparison.OrdinalIgnoreCase)
-                        ? $" Tên file Server đã lưu: {savedFileName}."
-                        : $" Server đổi tên file thành: {savedFileName}.";
+                        ? $" Tên file Server đã lưu: " +
+                          $"{savedFileName}."
+                        : $" Server đổi tên file thành: " +
+                          $"{savedFileName}.";
 
-                    return UploadResult.Success(message, savedFileName);
+                    return UploadResult.Success(
+                        message,
+                        savedFileName);
                 }
 
                 if (finalResponse.Status ==
@@ -296,15 +319,13 @@ namespace UDM10.Client.Services
                 }
 
                 return UploadResult.Fail(
-                    $"Server trả trạng thái " +
-                    $"không hợp lệ: " +
+                    $"Server trả trạng thái không hợp lệ: " +
                     $"{finalResponse.Status}.");
             }
             catch (OperationCanceledException)
-                when (cancellationToken
-                    .IsCancellationRequested)
+                when (
+                    cancellationToken.IsCancellationRequested)
             {
-              
                 throw;
             }
             catch (SocketException ex)
@@ -349,23 +370,20 @@ namespace UDM10.Client.Services
         }
 
         private static bool IsValidResponse(
-    UploadResponse response,
-    string requestId,
-    out string error)
+            UploadResponse response,
+            string requestId,
+            out string error)
         {
             var validation =
-                MetadataValidator.ValidateResponse(response);
+                MetadataValidator.ValidateResponse(
+                    response);
 
             if (!validation.IsValid)
             {
-                error = validation.Message;
-                return false;
-            }
+                error =
+                    $"Response protocol không hợp lệ: " +
+                    $"{validation.Message}";
 
-            if (string.IsNullOrWhiteSpace(
-                    response.RequestId))
-            {
-                error = "Response thiếu RequestId.";
                 return false;
             }
 
@@ -375,8 +393,8 @@ namespace UDM10.Client.Services
                     StringComparison.Ordinal))
             {
                 error =
-                    "RequestId của response không khớp với " +
-                    "request hiện tại.";
+                    "RequestId của response không khớp " +
+                    "với request hiện tại.";
 
                 return false;
             }
@@ -409,8 +427,8 @@ namespace UDM10.Client.Services
                         timeoutCts.Token);
             }
             catch (OperationCanceledException)
-                when (!cancellationToken
-                    .IsCancellationRequested)
+                when (
+                    !cancellationToken.IsCancellationRequested)
             {
                 throw new TimeoutException();
             }
@@ -419,16 +437,8 @@ namespace UDM10.Client.Services
         private static string FormatServerError(
             UploadResponse response)
         {
-            string code =
-                response.ErrorCode.ToString();
-
-            string message =
-                string.IsNullOrWhiteSpace(
-                    response.ErrorMessage)
-                    ? "Server từ chối yêu cầu."
-                    : response.ErrorMessage;
-
-            return $"{code}: {message}";
+            return $"{response.ErrorCode}: " +
+                   $"{response.ErrorMessage}";
         }
     }
 }

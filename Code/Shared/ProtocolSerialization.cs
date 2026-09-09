@@ -14,6 +14,7 @@ namespace UDM10.Shared
                     JsonUnmappedMemberHandling.Disallow
             };
 
+       
         internal static UTF8Encoding Utf8 { get; } =
             new(
                 encoderShouldEmitUTF8Identifier: false,
