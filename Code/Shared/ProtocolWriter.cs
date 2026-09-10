@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 
 namespace UDM10.Shared
 {
-
     public static class ProtocolWriter
     {
         public static Task WriteRequestAsync(
@@ -40,22 +39,25 @@ namespace UDM10.Shared
             ArgumentNullException.ThrowIfNull(stream);
             ArgumentNullException.ThrowIfNull(message);
 
-            string json = JsonSerializer.Serialize(
-                message,
-                ProtocolSerialization.JsonOptions);
+            string json =
+                JsonSerializer.Serialize(
+                    message,
+                    ProtocolSerialization.JsonOptions);
 
             byte[] data =
                 ProtocolSerialization.Utf8.GetBytes(json);
 
             if (data.Length == 0 ||
-                data.Length > ProtocolConstants.MaxMetadataLength)
+                data.Length >
+                    ProtocolConstants.MaxMetadataLength)
             {
                 throw new InvalidDataException(
                     $"Metadata phải nằm trong khoảng " +
                     $"1..{ProtocolConstants.MaxMetadataLength} byte.");
             }
 
-            byte[] lengthPrefix = new byte[sizeof(int)];
+            byte[] lengthPrefix =
+                new byte[sizeof(int)];
 
             BinaryPrimitives.WriteInt32LittleEndian(
                 lengthPrefix,

@@ -6,7 +6,9 @@ namespace UDM10.Shared
     public static class MetadataValidator
     {
         private static readonly char[] InvalidFileNameCharacters =
-            ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+        [
+            '<', '>', ':', '"', '/', '\\', '|', '?', '*'
+        ];
 
         private static readonly string[] ReservedWindowsNames =
         [
@@ -21,8 +23,8 @@ namespace UDM10.Shared
             bool IsValid,
             ErrorCode ErrorCode,
             string Message) Validate(
-                UploadRequest? request,
-                long maxAllowedSize)
+            UploadRequest? request,
+            long maxAllowedSize)
         {
             if (request is null)
             {
@@ -31,8 +33,9 @@ namespace UDM10.Shared
                     "Metadata request không tồn tại hoặc không hợp lệ.");
             }
 
-            if (string.IsNullOrWhiteSpace(
-                    request.ProtocolVersion))
+          
+
+            if (string.IsNullOrWhiteSpace(request.ProtocolVersion))
             {
                 return Fail(
                     ErrorCode.ProtocolVersionMismatch,
@@ -47,12 +50,12 @@ namespace UDM10.Shared
                 return Fail(
                     ErrorCode.ProtocolVersionMismatch,
                     $"ProtocolVersion không được hỗ trợ. " +
-                    $"Server yêu cầu " +
-                    $"{ProtocolConstants.CurrentVersion}.");
+                    $"Server yêu cầu {ProtocolConstants.CurrentVersion}.");
             }
 
-            if (string.IsNullOrWhiteSpace(
-                    request.RequestId))
+          
+
+            if (string.IsNullOrWhiteSpace(request.RequestId))
             {
                 return Fail(
                     ErrorCode.MissingRequestId,
@@ -79,13 +82,24 @@ namespace UDM10.Shared
                     "hoặc ký tự điều khiển.");
             }
 
-            if (request.Status != UploadStatus.Request &&
-                request.Status != UploadStatus.Retry)
+
+
+            if (!Enum.IsDefined(request.Status))
             {
                 return Fail(
                     ErrorCode.UnsupportedStatus,
-                    "Status không được hỗ trợ trong Protocol v3.");
+                    $"Status không thuộc enum UploadStatus: " +
+                    $"{(int)request.Status}.");
             }
+
+            if (request.Status != UploadStatus.Request)
+            {
+                return Fail(
+                    ErrorCode.UnsupportedStatus,
+                    "UploadRequest chỉ chấp nhận Status=Request.");
+            }
+
+
 
             if (!IsValidFileName(
                     request.FileName,
@@ -103,6 +117,8 @@ namespace UDM10.Shared
                     $"FileName {fileNameError}");
             }
 
+         
+
             if (request.FileSize < 0)
             {
                 return Fail(
@@ -119,13 +135,13 @@ namespace UDM10.Shared
                     $"{maxAllowedSize} byte.");
             }
 
-            if (string.IsNullOrWhiteSpace(request.FileHash) ||
-                request.FileHash.Length != 64 ||
-                !request.FileHash.All(Uri.IsHexDigit))
+
+            if (!IsValidSha256(request.FileHash))
             {
                 return Fail(
                     ErrorCode.InvalidMetadata,
-                    "FileHash phải là chuỗi SHA-256 gồm đúng 64 ký tự hex.");
+                    "FileHash phải là chuỗi SHA-256 gồm đúng 64 " +
+                    "ký tự hex.");
             }
 
             return (
@@ -135,15 +151,17 @@ namespace UDM10.Shared
         }
 
         public static (
-    bool IsValid,
-    string Message) ValidateResponse(
-        UploadResponse? response)
+            bool IsValid,
+            string Message) ValidateResponse(
+            UploadResponse? response)
         {
             if (response is null)
             {
                 return ResponseFail(
                     "Response không tồn tại.");
             }
+
+          
 
             if (string.IsNullOrWhiteSpace(
                     response.ProtocolVersion))
@@ -162,6 +180,7 @@ namespace UDM10.Shared
                     $"Yêu cầu {ProtocolConstants.CurrentVersion}.");
             }
 
+           
             if (string.IsNullOrWhiteSpace(
                     response.RequestId))
             {
@@ -183,16 +202,19 @@ namespace UDM10.Shared
                 response.RequestId.Any(char.IsControl))
             {
                 return ResponseFail(
-                    "Response RequestId không được chứa khoảng trắng ở đầu/cuối " +
-                    "hoặc ký tự điều khiển.");
+                    "Response RequestId không được chứa khoảng trắng " +
+                    "ở đầu/cuối hoặc ký tự điều khiển.");
             }
 
+           
             if (!Enum.IsDefined(response.Status))
             {
                 return ResponseFail(
                     $"Response có Status không hợp lệ: " +
                     $"{(int)response.Status}.");
             }
+
+            
 
             if (!Enum.IsDefined(response.ErrorCode))
             {
@@ -205,28 +227,34 @@ namespace UDM10.Shared
             {
                 case UploadStatus.Ready:
 
+                  
                     if (response.ErrorCode != ErrorCode.None)
                     {
                         return ResponseFail(
                             "Response Ready không được chứa ErrorCode.");
                     }
 
+                    
                     if (response.SavedFileName is not null)
                     {
                         return ResponseFail(
-                            "Response Ready không được chứa SavedFileName.");
+                            "Response Ready không được chứa " +
+                            "SavedFileName.");
                     }
 
                     break;
 
                 case UploadStatus.Completed:
 
+                    
                     if (response.ErrorCode != ErrorCode.None)
                     {
                         return ResponseFail(
-                            "Response Completed không được chứa ErrorCode.");
+                            "Response Completed không được chứa " +
+                            "ErrorCode.");
                     }
 
+                   
                     if (!IsValidFileName(
                             response.SavedFileName,
                             out string savedFileNameError))
@@ -239,12 +267,14 @@ namespace UDM10.Shared
 
                 case UploadStatus.Error:
 
+                    
                     if (response.ErrorCode == ErrorCode.None)
                     {
                         return ResponseFail(
                             "Response Error phải có ErrorCode.");
                     }
 
+                   
                     if (string.IsNullOrWhiteSpace(
                             response.ErrorMessage))
                     {
@@ -252,10 +282,12 @@ namespace UDM10.Shared
                             "Response Error phải có ErrorMessage.");
                     }
 
+                   
                     if (response.SavedFileName is not null)
                     {
                         return ResponseFail(
-                            "Response Error không được chứa SavedFileName.");
+                            "Response Error không được chứa " +
+                            "SavedFileName.");
                     }
 
                     break;
@@ -268,6 +300,31 @@ namespace UDM10.Shared
             }
 
             return (true, string.Empty);
+        }
+
+        private static bool IsValidSha256(
+            string? hash)
+        {
+            if (string.IsNullOrWhiteSpace(hash) ||
+                hash.Length != 64)
+            {
+                return false;
+            }
+
+            foreach (char c in hash)
+            {
+                bool isHex =
+                    (c >= '0' && c <= '9') ||
+                    (c >= 'A' && c <= 'F') ||
+                    (c >= 'a' && c <= 'f');
+
+                if (!isHex)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool IsValidFileName(
@@ -302,7 +359,8 @@ namespace UDM10.Shared
                 return false;
             }
 
-            string baseName = fileName.Split('.')[0];
+            string baseName =
+                fileName.Split('.')[0];
 
             if (fileName is "." or ".." ||
                 ReservedWindowsNames.Contains(
@@ -322,7 +380,7 @@ namespace UDM10.Shared
         private static (
             bool IsValid,
             string Message) ResponseFail(
-                string message)
+            string message)
         {
             return (false, message);
         }
@@ -331,8 +389,8 @@ namespace UDM10.Shared
             bool IsValid,
             ErrorCode ErrorCode,
             string Message) Fail(
-                ErrorCode errorCode,
-                string message)
+            ErrorCode errorCode,
+            string message)
         {
             return (
                 false,
