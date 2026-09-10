@@ -40,6 +40,8 @@ internal sealed class TransferResult
     public bool TransferSucceeded { get; init; }
 }
 
+internal readonly record struct UploadOutcome(long BytesSent, string SavedFileName);
+
 internal sealed class MachineProfile
 {
     public string OsDescription { get; init; } = string.Empty;
@@ -119,6 +121,8 @@ internal static class UploadTcpBenchmark
         new("light-load", 64 * 1024, 32L * 1024 * 1024),
         new("heavy-load", 256 * 1024, 512L * 1024 * 1024)
     ];
+
+    private const int DuplicateNameConcurrency = 5;
 
     public static async Task<int> RunAsync(string[] args)
     {
@@ -224,24 +228,33 @@ internal static class UploadTcpBenchmark
                     uploadsDirectory,
                     port);
 
+            bool duplicateNamesOk =
+                await ValidateConcurrentDuplicateUploadsAsync(
+                    payloadDirectory,
+                    uploadsDirectory,
+                    port);
+
             await WriteReportsAsync(
                 options.OutputDirectory,
                 machine,
                 results,
                 partialFileRejected,
+                duplicateNamesOk,
                 serverOutput.ToString());
 
             PrintResults(
                 machine,
                 results,
                 partialFileRejected,
+                duplicateNamesOk,
                 options.OutputDirectory);
 
             bool passed =
                 results.All(result =>
                     result.TransferSucceeded &&
                     result.IntegrityOk) &&
-                partialFileRejected;
+                partialFileRejected &&
+                duplicateNamesOk;
 
             return passed ? 0 : 1;
         }
@@ -291,7 +304,7 @@ internal static class UploadTcpBenchmark
         long bytesSent;
         try
         {
-            bytesSent = await UploadFileAsync(
+            UploadOutcome outcome = await UploadFileAsync(
                 sourcePath,
                 fileName,
                 scenario.FileSizeBytes,
@@ -299,6 +312,7 @@ internal static class UploadTcpBenchmark
                 scenario.ChunkSizeBytes,
                 requestId,
                 port);
+            bytesSent = outcome.BytesSent;
         }
         finally
         {
@@ -358,7 +372,7 @@ internal static class UploadTcpBenchmark
         };
     }
 
-    private static async Task<long> UploadFileAsync(
+    private static async Task<UploadOutcome> UploadFileAsync(
         string sourcePath,
         string fileName,
         long fileSize,
@@ -434,7 +448,7 @@ internal static class UploadTcpBenchmark
                 $"{completed.ErrorMessage}");
         }
 
-        return bytesSent;
+        return new UploadOutcome(bytesSent, completed.SavedFileName!);
     }
 
     private static async Task<UploadResponse> ReadRequiredResponseAsync(
@@ -522,6 +536,102 @@ internal static class UploadTcpBenchmark
 
         return !File.Exists(finalPath) &&
             !File.Exists(partPath);
+    }
+
+    // Gửi cùng một tên file từ nhiều kết nối song song để kiểm chứng
+    // DuplicateFileNameResolver không bao giờ trả trùng đường dẫn và không
+    // có file nào bị ghi đè hay lẫn nội dung của file khác.
+    private static async Task<bool> ValidateConcurrentDuplicateUploadsAsync(
+        string payloadDirectory,
+        string uploadsDirectory,
+        int port)
+    {
+        const string sharedFileName = "duplicate-name-test.bin";
+        const int payloadLength = 256 * 1024;
+
+        var uploads = new (string SourcePath, string RequestId, string Hash)[
+            DuplicateNameConcurrency];
+
+        for (int index = 0; index < DuplicateNameConcurrency; index++)
+        {
+            string requestId = Guid.NewGuid().ToString("N");
+            string sourcePath = Path.Combine(
+                payloadDirectory,
+                $"dup-source-{requestId}.bin");
+
+            await WriteFileInChunksAsync(sourcePath, payloadLength, 64 * 1024);
+            string hash = await ComputeHashAsync(sourcePath);
+
+            uploads[index] = (sourcePath, requestId, hash);
+        }
+
+        Task<UploadOutcome>[] tasks = uploads
+            .Select(upload => UploadFileAsync(
+                upload.SourcePath,
+                sharedFileName,
+                payloadLength,
+                upload.Hash,
+                64 * 1024,
+                upload.RequestId,
+                port))
+            .ToArray();
+
+        UploadOutcome[] outcomes;
+        try
+        {
+            outcomes = await Task.WhenAll(tasks);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"[DUPLICATE-NAME] Một upload song song thất bại: {ex.Message}");
+            return false;
+        }
+
+        string[] savedNames = outcomes
+            .Select(outcome => outcome.SavedFileName)
+            .ToArray();
+
+        bool namesAreUnique =
+            savedNames.Distinct(StringComparer.OrdinalIgnoreCase).Count() ==
+            savedNames.Length;
+
+        if (!namesAreUnique)
+        {
+            Console.Error.WriteLine(
+                "[DUPLICATE-NAME] Server trả trùng SavedFileName cho các upload " +
+                "song song cùng tên gốc.");
+            return false;
+        }
+
+        for (int index = 0; index < uploads.Length; index++)
+        {
+            string receivedPath = Path.Combine(
+                uploadsDirectory,
+                outcomes[index].SavedFileName);
+
+            if (!File.Exists(receivedPath))
+            {
+                Console.Error.WriteLine(
+                    $"[DUPLICATE-NAME] Không tìm thấy file đã lưu: {receivedPath}");
+                return false;
+            }
+
+            string receivedHash = await ComputeHashAsync(receivedPath);
+            if (!string.Equals(
+                    receivedHash,
+                    uploads[index].Hash,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine(
+                    "[DUPLICATE-NAME] Nội dung file đã lưu không khớp file nguồn " +
+                    $"cho '{outcomes[index].SavedFileName}' (dữ liệu có thể bị lẫn " +
+                    "giữa các upload song song).");
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static async Task WriteFileInChunksAsync(
@@ -738,6 +848,7 @@ internal static class UploadTcpBenchmark
         MachineProfile machine,
         IReadOnlyCollection<TransferResult> results,
         bool partialFileRejected,
+        bool duplicateNamesOk,
         string serverOutput)
     {
         string suffix = machine.OfficialWindowsRun
@@ -758,6 +869,7 @@ internal static class UploadTcpBenchmark
             GeneratedAtUtc = DateTime.UtcNow,
             Machine = machine,
             PartialFileRejected = partialFileRejected,
+            DuplicateNamesOk = duplicateNamesOk,
             Results = results
         };
 
@@ -774,14 +886,16 @@ internal static class UploadTcpBenchmark
             BuildMarkdown(
                 machine,
                 results,
-                partialFileRejected));
+                partialFileRejected,
+                duplicateNamesOk));
         await File.WriteAllTextAsync(logPath, serverOutput);
     }
 
     private static string BuildMarkdown(
         MachineProfile machine,
         IEnumerable<TransferResult> results,
-        bool partialFileRejected)
+        bool partialFileRejected,
+        bool duplicateNamesOk)
     {
         StringBuilder builder = new();
         builder.AppendLine("# Upload TCP performance summary");
@@ -822,6 +936,9 @@ internal static class UploadTcpBenchmark
         builder.AppendLine(
             $"- Partial upload rejected and .part cleaned: " +
             $"{partialFileRejected}");
+        builder.AppendLine(
+            $"- {DuplicateNameConcurrency} concurrent uploads with same file name " +
+            $"resolved to unique, uncorrupted files: {duplicateNamesOk}");
         return builder.ToString();
     }
 
@@ -829,6 +946,7 @@ internal static class UploadTcpBenchmark
         MachineProfile machine,
         IEnumerable<TransferResult> results,
         bool partialFileRejected,
+        bool duplicateNamesOk,
         string outputDirectory)
     {
         Console.WriteLine("=== UDM10 TCP benchmark ===");
@@ -849,6 +967,8 @@ internal static class UploadTcpBenchmark
 
         Console.WriteLine(
             $"Partial upload cleanup: {partialFileRejected}");
+        Console.WriteLine(
+            $"Concurrent duplicate-name uploads OK: {duplicateNamesOk}");
         Console.WriteLine($"Reports: {outputDirectory}");
 
         if (!machine.OfficialWindowsRun)

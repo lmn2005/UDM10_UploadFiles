@@ -51,6 +51,30 @@ namespace UDM10.Client.Services
                         Status =
                             UploadItemStatus.Uploading,
                         ConnectionStatus =
+                            ConnectionStatus.Disconnected,
+                        Message =
+                            "Đang tính SHA-256..."
+                    });
+
+                // Tính hash trước khi mở kết nối TCP: nếu file lớn khiến việc đọc/hash
+                // chậm, Server sẽ không bắt đầu đếm timeout chờ metadata trong lúc đó.
+                string fileHash =
+                    await ChunkedFileSender
+                        .ComputeHashAsync(
+                            filePath,
+                            cancellationToken);
+
+                fileInfo.Refresh();
+                long hashedFileSize = fileInfo.Length;
+                DateTime hashedLastWriteUtc = fileInfo.LastWriteTimeUtc;
+
+                progress?.Report(
+                    new UploadProgress
+                    {
+                        BytesTransferred = 0,
+                        Status =
+                            UploadItemStatus.Uploading,
+                        ConnectionStatus =
                             ConnectionStatus.Connecting,
                         Message =
                             "Đang kết nối Server..."
@@ -88,16 +112,8 @@ namespace UDM10.Client.Services
                             ConnectionStatus.Connected,
                         Message =
                             "Đã kết nối Server, " +
-                            "đang kiểm tra file..."
+                            "đang gửi metadata..."
                     });
-
-              
-                string fileHash =
-                    await ChunkedFileSender
-                        .ComputeHashAsync(
-                            filePath,
-                            cancellationToken);
-
 
                 UploadRequest request = new()
                 {
@@ -111,7 +127,7 @@ namespace UDM10.Client.Services
                         fileInfo.Name,
 
                     FileSize =
-                        fileInfo.Length,
+                        hashedFileSize,
 
                     FileHash =
                         fileHash,
@@ -176,6 +192,20 @@ namespace UDM10.Client.Services
                         $"{readyResponse.Status}.");
                 }
 
+                // File có thể bị sửa/ghi đè giữa lúc tính hash và lúc thật sự gửi
+                // (ví dụ do một tiến trình khác). Gửi tiếp sẽ khiến Server nhận dữ
+                // liệu không khớp fileHash/fileSize đã công bố, nên dừng sớm với
+                // thông báo rõ ràng thay vì để Server phát hiện checksum sai sau đó.
+                FileInfo currentInfo = new(filePath);
+                if (!currentInfo.Exists ||
+                    currentInfo.Length != hashedFileSize ||
+                    currentInfo.LastWriteTimeUtc != hashedLastWriteUtc)
+                {
+                    return UploadResult.Fail(
+                        "File đã thay đổi sau khi tính SHA-256, " +
+                        "hủy upload để tránh gửi sai dữ liệu.");
+                }
+
                 progress?.Report(
                     new UploadProgress
                     {
@@ -206,6 +236,11 @@ namespace UDM10.Client.Services
                         ProtocolConstants
                             .DefaultChunkSize;
                 }
+
+                int sendTimeoutMs =
+                    _settings.Network.SendTimeoutMs > 0
+                        ? _settings.Network.SendTimeoutMs
+                        : 30000;
 
                 long totalSent = 0;
 
@@ -260,7 +295,8 @@ namespace UDM10.Client.Services
                                     "Đang gửi file..."
                             });
                     },
-                    cancellationToken);
+                    sendTimeoutMs: sendTimeoutMs,
+                    cancellationToken: cancellationToken);
 
                
 
@@ -334,10 +370,12 @@ namespace UDM10.Client.Services
                     $"Không kết nối được Server: " +
                     $"{ex.Message}");
             }
-            catch (TimeoutException)
+            catch (TimeoutException ex)
             {
                 return UploadResult.Fail(
-                    "Server phản hồi quá thời gian.");
+                    string.IsNullOrWhiteSpace(ex.Message)
+                        ? "Server phản hồi quá thời gian."
+                        : ex.Message);
             }
             catch (UnauthorizedAccessException)
             {

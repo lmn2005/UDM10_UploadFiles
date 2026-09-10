@@ -42,6 +42,7 @@ namespace UDM10.Client.Services
         public int Port { get; set; } = 9000;
         public int ConnectTimeoutMs { get; set; } = 5000;
         public int ReceiveTimeoutMs { get; set; } = 10000;
+        public int SendTimeoutMs { get; set; } = 30000;
     }
 
     internal sealed class UploadSettings
