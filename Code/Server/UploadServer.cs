@@ -55,11 +55,7 @@ namespace UDM10.Server
             try
             {
                 _listener = new TcpListener(ipAddress, _port);
-
-                // Server demo phải sở hữu độc quyền endpoint. Không bật ReuseAddress vì
-                // có thể cho phép hai tiến trình cùng bind một port trên một số hệ điều hành.
                 _listener.Server.ExclusiveAddressUse = true;
-
                 _listener.Start();
                 _isRunning = true;
 
@@ -94,8 +90,6 @@ namespace UDM10.Server
 
                             long sessionId = Interlocked.Increment(ref _nextSessionId);
                             string requestId = $"REQ-{sessionId:D4}";
-
-                            _logger.LogInfo($"[{requestId}] Client connected from {clientEndPoint}");
 
                             TaskCompletionSource sessionCompletion =
                                 new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -135,7 +129,13 @@ namespace UDM10.Server
 
                 if (!_activeTasks.IsEmpty)
                 {
-                    await Task.WhenAll(_activeTasks.Values);
+                    Task allTasks = Task.WhenAll(_activeTasks.Values);
+                    Task timeoutTask = Task.Delay(5000);
+
+                    if (await Task.WhenAny(allTasks, timeoutTask) == timeoutTask)
+                    {
+                        _logger.LogWarning("[SHUTDOWN] Đã hết thời hạn 5s chờ dọn dẹp session. Buộc kết thúc tiến trình Server.");
+                    }
                 }
 
                 _logger.LogInfo("[SHUTDOWN] Tất cả session đã đóng sạch sẽ. Server ngừng hoạt động hoàn toàn.");
@@ -165,7 +165,7 @@ namespace UDM10.Server
                     clientIp,
                     "N/A",
                     0,
-                    $"Unhandled exception: {ex.Message}");
+                    $"Unhandled exception trong session: {ex.Message}");
             }
             finally
             {
@@ -179,7 +179,14 @@ namespace UDM10.Server
             if (!_isRunning) return;
 
             _isRunning = false;
-            _listener?.Stop();
+            try
+            {
+                _listener?.Stop();
+            }
+            catch
+            {
+                // Bỏ qua lỗi ngắt socket ngắt đột ngột
+            }
 
             _logger.LogInfo("[SYSTEM] Server đã ngắt kết nối listener và ngừng nhận kết nối mới.");
         }
