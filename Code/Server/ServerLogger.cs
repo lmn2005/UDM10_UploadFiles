@@ -3,7 +3,7 @@ using System.IO;
 
 namespace UDM10.Server
 {
-    public enum UploadLifecycleEvent { Start, Cancel, Retry, Completed, Error, Disconnect, Timeout }
+    public enum UploadLifecycleEvent { Connect, Start, Cancel, Retry, Completed, Error, Disconnect, Timeout }
 
     public class ServerLogger
     {
@@ -24,7 +24,6 @@ namespace UDM10.Server
 
         public void LogWarning(string message) => Write("WARNING", message);
 
-        // Log có cấu trúc cho từng bước vòng đời 1 lượt upload
         public void LogUploadEvent(
             UploadLifecycleEvent lifecycleEvent,
             string requestId,
@@ -33,12 +32,19 @@ namespace UDM10.Server
             long bytesTransferred,
             string? extraMessage = null)
         {
-            string message = $"Event={lifecycleEvent} RequestId={requestId} ClientIp={clientIp} " +
-                              $"FileName={fileName} Bytes={bytesTransferred}" +
+            string reqIdStr = string.IsNullOrWhiteSpace(requestId) ? "N/A" : requestId;
+            string fileStr = string.IsNullOrWhiteSpace(fileName) ? "N/A" : fileName;
+
+            string message = $"Event={lifecycleEvent} RequestId={reqIdStr} ClientIp={clientIp} " +
+                              $"FileName={fileStr} Bytes={bytesTransferred}" +
                               (string.IsNullOrEmpty(extraMessage) ? "" : $" Message={extraMessage}");
 
-            string level = lifecycleEvent is UploadLifecycleEvent.Error or UploadLifecycleEvent.Timeout
-                ? "ERROR" : "INFO";
+            string level = lifecycleEvent switch
+            {
+                UploadLifecycleEvent.Error or UploadLifecycleEvent.Timeout => "ERROR",
+                UploadLifecycleEvent.Cancel or UploadLifecycleEvent.Disconnect => "WARNING",
+                _ => "INFO"
+            };
 
             Write(level, message);
         }
