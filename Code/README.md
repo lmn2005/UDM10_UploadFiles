@@ -4,7 +4,7 @@ UDM10 là ứng dụng Client–Server truyền nhiều file qua TCP. Client WPF
 
 Môi trường chạy và demo chính thức là Windows 10/11. Có thể phát triển trên macOS, nhưng Client WPF phải được build và chạy trong Windows VM.
 
-> Rà soát 05/09/2026: tài liệu này mô tả thiết kế và cách chạy. Các lỗi còn mở, trạng thái nghiệm thu, phân công và hồ sơ nộp được ghi trong [README gốc](../README.md) và báo cáo `UDM10_Bao_cao_ra_soat_loi.docx` được chia sẻ riêng ngoài repository. Chưa xem toàn bộ các cam kết dưới đây là đã kiểm chứng trên Windows.
+> Rà soát tích hợp 12/09/2026: solution build Release với 0 warning, 0 error; bộ kiểm thử riêng đạt 11/11 ca và benchmark TCP kỹ thuật đạt. GUI WPF và kết nối LAN vẫn cần nghiệm thu trên Windows.
 
 ## 1. Kiến trúc
 
@@ -14,7 +14,7 @@ Môi trường chạy và demo chính thức là Windows 10/11. Có thể phát 
 
 Luồng upload của một file:
 
-1. Client kết nối TCP, sau đó tính SHA-256 và gửi `UploadRequest`. Thứ tự hiện tại có nguy cơ vượt timeout metadata khi hash chậm; xem R02 trong báo cáo rà soát.
+1. Client tính SHA-256 và kiểm tra dấu hiệu thay đổi của file trước khi kết nối, sau đó gửi `UploadRequest` ngay khi TCP sẵn sàng.
 2. Server kiểm tra framing, JSON và toàn bộ metadata.
 3. Server trả `Ready` hoặc `Error`. Client chỉ gửi dữ liệu sau khi nhận `Ready` hợp lệ.
 4. Client gửi đúng `fileSize` byte; Server đọc theo chunk và ghi vào file tạm `.part`.
@@ -55,7 +55,7 @@ Quy tắc validation:
 
 - `protocolVersion` bắt buộc và phải khớp chính xác `V3`.
 - `requestId` dài từ 1 đến 128 ký tự; không có khoảng trắng đầu/cuối hoặc ký tự điều khiển.
-- `status` nhận `Request` hoặc `Retry`. Giá trị enum không tồn tại và status không dành cho request bị từ chối.
+- `status` của mọi lượt upload, kể cả thử lại, bắt buộc là `Request`. Giá trị `Retry` chỉ được giữ lại như mã dự phòng cũ và Server từ chối trên wire.
 - `fileName` dài từ 1 đến 255 ký tự, chỉ là tên file, không chứa đường dẫn, ký tự điều khiển, ký tự cấm hoặc tên thiết bị dành riêng của Windows như `CON`, `NUL`, `COM1`.
 - `fileSize` có thể bằng 0 và không được âm hoặc vượt `Upload:MaxAllowedSizeInBytes`.
 - `fileHash` là SHA-256 gồm đúng 64 ký tự hex, kể cả đối với file rỗng.
@@ -99,7 +99,7 @@ Client chỉ chấp nhận response khi `protocolVersion` và `requestId` khớp
 | 3 | `Completed` | Server → Client, đã nhận đủ byte và đúng SHA-256 |
 | 4 | `Error` | Server → Client, yêu cầu hoặc upload thất bại |
 | 5 | `Cancel` | Giá trị dự phòng; Client hiện hủy bằng cách đóng luồng upload đang chạy |
-| 6 | `Retry` | Client → Server, thực hiện lại như một request mới |
+| 6 | `Retry` | Giá trị dự phòng cũ, không được Server chấp nhận trên wire |
 
 Không có Pause/Resume. Cancel dừng đúng upload hiện tại bằng cancellation token và đóng kết nối; Server phát hiện luồng bị ngắt rồi dọn file `.part`.
 
@@ -132,6 +132,7 @@ Client hiển thị lỗi Server theo dạng `ErrorCode: ErrorMessage`, không t
 | `Network:ServerIp` | `0.0.0.0` | Lắng nghe trên mọi card mạng; dùng để chạy LAN |
 | `Network:Port` | `9000` | Cổng TCP |
 | `Network:ReceiveTimeoutMs` | `30000` | Idle timeout cho metadata và từng lần chờ dữ liệu file |
+| `Network:ErrorSendTimeoutMs` | `3000` | Giới hạn thời gian gửi response lỗi |
 | `Upload:SaveDirectory` | `Uploads` | Thư mục lưu file, tính từ thư mục chạy Server nếu dùng đường dẫn tương đối |
 | `Upload:ChunkSizeBytes` | `65536` | Chunk ghi file; giá trị không dương tự về 8192 byte |
 | `Upload:MaxAllowedSizeInBytes` | `10737418240` | Giới hạn 10 GiB cho một file |
@@ -147,7 +148,7 @@ Client hiển thị lỗi Server theo dạng `ErrorCode: ErrorMessage`, không t
 | `Upload:ChunkSizeBytes` | `65536` | Chunk gửi file, 64 KiB |
 | `Upload:MaxConcurrentFiles` | `3` | Số upload đồng thời; code luôn chặn không vượt quá 3 |
 
-`Client/appsettings.json` cung cấp IP/port ban đầu. Người dùng có thể sửa Server IP và port ngay trên giao diện trước khi chọn hoặc kéo thả file; thay đổi trên giao diện chỉ áp dụng cho phiên đang chạy.
+`Client/appsettings.json` cung cấp IP/port ban đầu. Người dùng có thể sửa Server IP và port ngay trên giao diện trước khi chọn, kéo thả, Retry hoặc Retry All; thay đổi trên giao diện chỉ áp dụng cho phiên đang chạy.
 
 ## 4. Build và chạy trên Windows
 
@@ -196,20 +197,20 @@ Hai thư mục publish dùng chung assembly Protocol v3. Thư mục `publish` đ
 
 ## 6. Benchmark TCP trên Windows
 
-Benchmark chạy một tiến trình Client benchmark và một tiến trình `UDM10.Server` riêng, truyền dữ liệu qua TCP loopback. Hai mức tải mặc định là 32 MiB/chunk 64 KiB và 512 MiB/chunk 256 KiB. Công cụ đo throughput TCP, CPU và peak working set riêng của hai tiến trình, đối chiếu size/SHA-256, đồng thời kiểm tra upload thiếu byte bị từ chối và `.part` được dọn.
+Benchmark nằm trong bộ test nộp riêng, chạy một tiến trình Client benchmark và một tiến trình `UDM10.Server` riêng qua TCP loopback. Hai mức tải mặc định là 32 MiB/chunk 64 KiB và 512 MiB/chunk 256 KiB. Công cụ đo throughput TCP, CPU và peak working set riêng của hai tiến trình, đối chiếu size/SHA-256, đồng thời kiểm tra upload thiếu byte bị từ chối và `.part` được dọn.
 
 Mở PowerShell tại thư mục gốc repository trên Windows:
 
 ```powershell
 dotnet build .\Code\UDM10.sln -c Release
-dotnet run --project .\Benchmark\Benchmark.csproj -c Release
+dotnet run --project .\Benchmark\Benchmark.csproj -c Release -- --output C:\UDM10_Test_Results\Performance
 ```
 
-Kết quả chính thức được ghi vào:
+Kết quả được lưu ngoài repository; mặc định tại thư mục Documents của người chạy:
 
-- `Extra\Performance\upload-performance-summary.json`
-- `Extra\Performance\upload-performance-summary.md`
-- `Extra\Performance\upload-performance-server.log`
+- `Documents\UDM10_Test_Results\Performance\upload-performance-summary.json`
+- `Documents\UDM10_Test_Results\Performance\upload-performance-summary.md`
+- `Documents\UDM10_Test_Results\Performance\upload-performance-server.log`
 
 Benchmark từ chối chạy chính thức ngoài Windows. Tham số `--allow-non-windows` chỉ dành cho kiểm tra kỹ thuật và tạo file có hậu tố `-non-windows`; tuyệt đối không dùng các file này làm bằng chứng nghiệm thu.
 
@@ -221,4 +222,4 @@ Code đã có scheduler tối đa 3 upload, trạng thái và thống kê từng
 
 Việc demo hai máy, chụp bằng chứng, chạy lại benchmark TCP và xác nhận Release Candidate vẫn là bước nghiệm thu thủ công trên Windows; README không thay thế các bằng chứng đó.
 
-Các giới hạn đã phát hiện: thiếu timeout chiều gửi; GUI chưa có nút Hủy/Retry hàng loạt dù ViewModel có hàm; sửa endpoint chưa áp dụng khi Retry; log thiếu Disconnect; metadata thiếu fileSize có thể được nhận như file rỗng; tên dài có thể không tạo được .part. Chi tiết và các lỗi khác ở báo cáo rà soát, không được đánh dấu nghiệm thu trước khi sửa và test lại.
+Các phần còn phải nghiệm thu riêng gồm giao diện WPF trên Windows, chạy Client–Server qua hai máy hoặc hai VM, và khả năng xử lý file `.part` còn sót sau khi tiến trình Server bị kill hoặc máy mất điện. Bộ kiểm thử scheduler và protocol được lưu ngoài repository nộp đồ án.

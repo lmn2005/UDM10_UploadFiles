@@ -1,6 +1,0 @@
-{
-  "status": "PENDING_WINDOWS_TCP_RUN",
-  "officialWindowsRun": false,
-  "reason": "Kết quả cũ chạy FileStream-to-FileStream trên macOS, không phải Client-Server TCP.",
-  "command": "dotnet run --project .\\Benchmark\\Benchmark.csproj -c Release"
-}

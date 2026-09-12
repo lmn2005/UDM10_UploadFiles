@@ -33,6 +33,7 @@ namespace UDM10.Server
             Stream source,
             string expectedHash,
             int receiveTimeoutMs,
+            Action<long>? onProgress = null,
             CancellationToken cancellationToken = default)
         {
             string tempPath = finalPath + ".part";
@@ -76,6 +77,7 @@ namespace UDM10.Server
 
                         hasher.AppendData(buffer, 0, bytesRead);
                         totalBytesRead += bytesRead;
+                        onProgress?.Invoke(totalBytesRead);
                     }
 
                     try

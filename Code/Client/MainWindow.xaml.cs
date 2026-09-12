@@ -121,6 +121,14 @@ namespace UDM10.Client
             {
                 await _viewModel.DisposeAsync();
             }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Ứng dụng gặp lỗi khi dọn tài nguyên: {ex.Message}",
+                    "Đóng ứng dụng",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
             finally
             {
                 _cleanupDone = true;
