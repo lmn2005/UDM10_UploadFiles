@@ -33,17 +33,57 @@ namespace UDM10.Shared
             int chunkSize,
             Action<int>? onChunkSent = null,
             int sendTimeoutMs = Timeout.Infinite,
+            long? expectedFileSize = null,
+            DateTime? expectedLastWriteUtc = null,
             CancellationToken cancellationToken = default)
         {
+            ArgumentNullException.ThrowIfNull(stream);
+
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                throw new ArgumentException(
+                    "Đường dẫn file không được để trống.",
+                    nameof(filePath));
+            }
+
+            if (chunkSize <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(chunkSize),
+                    "Chunk size phải lớn hơn 0.");
+            }
+
             byte[] buffer = new byte[chunkSize];
 
             await using FileStream fileStream = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, chunkSize, true);
+
+            if (expectedFileSize.HasValue &&
+                fileStream.Length != expectedFileSize.Value)
+            {
+                throw new IOException(
+                    "Kích thước file đã thay đổi trước khi bắt đầu gửi.");
+            }
+
+            if (expectedLastWriteUtc.HasValue &&
+                File.GetLastWriteTimeUtc(filePath) != expectedLastWriteUtc.Value)
+            {
+                throw new IOException(
+                    "Thời điểm sửa file đã thay đổi trước khi bắt đầu gửi.");
+            }
 
             int bytesRead;
             while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)) > 0)
             {
                 await WriteWithIdleTimeoutAsync(stream, buffer.AsMemory(0, bytesRead), sendTimeoutMs, cancellationToken);
                 onChunkSent?.Invoke(bytesRead);
+            }
+
+            if (expectedFileSize.HasValue &&
+                (fileStream.Position != expectedFileSize.Value ||
+                 fileStream.Length != expectedFileSize.Value))
+            {
+                throw new IOException(
+                    "File đã thay đổi trong quá trình gửi.");
             }
 
             await stream.FlushAsync(cancellationToken);

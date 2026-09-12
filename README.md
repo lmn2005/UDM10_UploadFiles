@@ -6,7 +6,7 @@
 - Mã lớp: **304**; nhóm: **11** (khôi phục từ README trong lịch sử Git; cần đối chiếu CourseCode/GroupCode chính thức trước khi nộp).
 - Repository: [lmn2005/UDM10_UploadFiles](https://github.com/lmn2005/UDM10_UploadFiles).
 - Video báo cáo/demo: **CHƯA CÓ LINK** — bổ sung link chia sẻ Google Drive/YouTube tại đây và trong báo cáo cuối kỳ.
-- Trạng thái rà soát 05/09/2026: build thành công; đã kiểm tra kỹ thuật TCP trên macOS; **chưa đủ bằng chứng nghiệm thu Windows, stress test và hồ sơ cuối kỳ**. Báo cáo chi tiết `UDM10_Bao_cao_ra_soat_loi.docx` được lưu và chia sẻ riêng ngoài repository.
+- Trạng thái tích hợp 12/09/2026: build Release sạch, bộ test riêng đạt 11/11; **còn phải quay GUI/LAN và chạy nghiệm thu chính thức trên Windows**. Báo cáo, slide và bộ test được lưu ngoài repository source.
 
 ## 1. Thành viên và phân công
 
@@ -21,7 +21,7 @@ MSSV/họ tên dưới đây lấy từ README lịch sử Git. Vai trò là đ�
 | 045205006605 | Võ Nhật Linh | Chunk transfer, storage, SHA-256, thống kê và performance |
 | 054206006612 | Huỳnh Việt Tiến | Theo thông tin nhóm cung cấp: không thực hiện phần việc; bảng tuần 1–4 ghi trễ hạn, tuần 5 không giao việc. Chưa ghi nhận commit mang tên/tài khoản nhận diện được của thành viên này trong lịch sử Git local đã kiểm tra. |
 
-Công việc tồn được chia cho **5 thành viên thực hiện**, với khối lượng dự kiến tương đương; không ghi nhận là đã xong khi chưa có sản phẩm. Chi tiết trong tài liệu `UDM10_Phan_cong_sua_loi.docx` được nhóm chia sẻ riêng. Đầu mối sửa: Tấn Hiệp (timeout gửi, hash trước kết nối); Anh Tuấn (config và metadata); Nhựt (GUI và Retry endpoint); Anh Kiệt (logging); Nhật Linh (tên dài và thống kê). Danh sách trên giữ thông tin đăng ký ban đầu; trạng thái thành viên chính thức cần khớp hồ sơ môn học.
+Công việc tồn được chia lại cho năm thành viên: Anh Tuấn phụ trách protocol và validation; Nhật Linh phụ trách transfer và storage; Anh Kiệt phụ trách session Server và logging; Nhựt phụ trách GUI; Tấn Hiệp kiểm tra scheduler và tích hợp cuối. Danh sách thành viên chính thức vẫn cần đối chiếu hồ sơ môn học trước khi nộp.
 
 ## 2. Mục tiêu, phạm vi và chức năng
 
@@ -38,8 +38,8 @@ Mục tiêu là truyền nhiều file ổn định, giữ GUI phản hồi, theo
 | Toàn vẹn file | Nhận đúng số byte đã khai báo, kiểm tra SHA-256, đổi `.part` thành file chính thức |
 | Cancel/Retry từng file | Có; Retry truyền lại từ đầu bằng request/kết nối mới |
 | Xóa các mục hoàn tất | Có nút GUI; xóa lịch sử Client, không xóa file trên Server |
-| Hủy tất cả / Thử lại tất cả | Có hàm trong ViewModel nhưng **chưa nối nút GUI** |
-| Tên file thực tế Server đã lưu | Có trong thông báo Completed; cột thông báo hiện hẹp, cần cải thiện khả năng đọc |
+| Hủy tất cả / Thử lại tất cả | Đã nối nút GUI và cập nhật trạng thái bật tắt theo danh sách |
+| Tên file thực tế Server đã lưu | Hiển thị trong cột riêng khi Server đổi tên do trùng |
 
 Không có Pause/Resume, upload thư mục, đăng nhập, TLS, cloud storage hoặc khôi phục queue sau khi đóng Client. SHA-256 dùng kiểm tra nội dung, không thay thế mã hóa/xác thực. Server chưa có giới hạn tổng số kết nối/toàn bộ Client; mức 3 chỉ áp dụng cho từng Client.
 
@@ -60,7 +60,7 @@ Client và Server cùng dùng Code/Shared cho protocol và validation.
 
 Protocol **V3**, TCP port mặc định **9000**. Một phiên hiện gồm:
 
-1. Client kết nối TCP; tính SHA-256 file. Hiện hash được tính **sau khi kết nối** — cần sửa vì file lớn/đĩa chậm có thể vượt timeout chờ metadata của Server.
+1. Client tính SHA-256 và chụp kích thước/thời điểm sửa file trước, sau đó mới mở kết nối TCP.
 2. Gửi metadata: **4 byte length little-endian + JSON UTF-8**, payload từ 1 đến 4096 byte.
 3. Server kiểm tra request, trả `Ready` hoặc `Error`.
 4. Sau `Ready`, gửi raw binary; Server đọc đúng `fileSize` byte, ghi file tạm theo chunk và tính hash.
@@ -73,7 +73,7 @@ Ví dụ request file rỗng:
 {"protocolVersion":"V3","requestId":"demo-001","fileName":"empty.txt","fileSize":0,"fileHash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","status":1}
 ```
 
-Response gồm `protocolVersion`, `requestId`, `status`, `errorCode`, `errorMessage`; `savedFileName` chỉ có khi Completed. Status: Request=1, Ready=2, Completed=3, Error=4, Cancel=5 (dự phòng), Retry=6 (Server chấp nhận nhưng Client hiện gửi Request). Chi tiết message, enum và quy tắc validation ở [Code/README.md](Code/README.md).
+Response gồm `protocolVersion`, `requestId`, `status`, `errorCode`, `errorMessage`; `savedFileName` chỉ có khi Completed. Status: Request=1, Ready=2, Completed=3, Error=4, Cancel=5 (dự phòng), Retry=6 (mã dự phòng cũ, Server không chấp nhận trên wire). Mọi lượt thử lại đều tạo request ID mới và gửi status `Request`. Chi tiết message, enum và quy tắc validation ở [Code/README.md](Code/README.md).
 
 ## 4. Môi trường, cấu hình và hướng dẫn chạy
 
@@ -113,29 +113,29 @@ Cấu hình trong `Code/Server/appsettings.json` và `Code/Client/appsettings.js
 | `Upload:MaxAllowedSizeInBytes` | 10737418240 (10 GiB/file) | Không dùng |
 | `Upload:SaveDirectory` | `Uploads` | Không dùng để lưu file Server |
 
-Đường dẫn tương đối `Uploads` và `Logs/server_log.txt` tính từ **working directory của Server**. GUI có ô sửa IP/port; hiện chỉ áp dụng khi chọn/kéo file, chưa áp dụng khi bấm Retry. Client có timeout kết nối/chờ response nhưng **chưa có timeout ghi dữ liệu**.
+Đường dẫn tương đối `Uploads` và `Logs/server_log.txt` tính từ **working directory của Server**. GUI áp dụng IP/port hiện tại khi chọn, kéo-thả, Retry hoặc Retry All. Client có timeout kết nối, chờ response và ghi dữ liệu.
 
 Chạy hai máy: Server bind `0.0.0.0`, lấy IPv4 LAN bằng `ipconfig`, cho phép inbound TCP 9000 trên firewall và nhập IP đó ở Client. `127.0.0.1` chỉ dùng cho cùng máy. Chọn/kéo file sẽ tự bắt đầu upload. Kịch bản LAN và lệnh publish chi tiết ở [hướng dẫn kỹ thuật](Code/README.md#5-chạy-clientserver-trên-hai-máy-hoặc-hai-windows-vm).
 
 ## 5. Kiểm thử và bằng chứng
 
-Rà soát source tại commit `010025a`, ngày 05/09/2026:
+Rà soát tích hợp ngày 12/09/2026 trên macOS 15.7.3 và .NET SDK 10.0.400:
 
-- `dotnet build Code/UDM10.sln -c Release`: **0 warning, 0 error** trên macOS/.NET SDK 10.0.400.
-- Probe Python ↔ tiến trình Server qua TCP loopback: 13/16 kiểm tra đạt, 3 kiểm tra phát hiện lỗi (tên dài, thiếu fileSize, thiếu log Disconnect). Đây không phải bộ functional test đầy đủ của WPF.
-- Benchmark TCP hiện có chạy kỹ thuật trên macOS: cả mức 32 MiB và 512 MiB đúng size/SHA-256, cleanup upload thiếu byte đạt. Không dùng kết quả này thay nghiệm thu Windows.
-- Probe các lớp Client bằng console .NET tái hiện thiếu write timeout, config null, lỗi file biến mất và sai thời gian phiên khi thêm các đợt upload nối tiếp.
+- `dotnet build Code/UDM10.sln -c Release`: **0 warning, 0 error**.
+- Bộ kiểm thử riêng ngoài repository đạt **11/11** ca protocol, storage, send timeout và scheduler.
+- Probe TCP trực tiếp xác nhận request status sai nhận `Error`, Server ghi đủ `Error` và `Disconnect`, Ctrl+C thoát sạch.
+- Benchmark TCP loopback kỹ thuật đạt **868,24 MB/s ở 32 MiB** và **1495,09 MB/s ở 512 MiB**; size/SHA-256 đúng, upload thiếu byte được dọn và năm upload trùng tên song song đều thành công.
 
-Bộ bằng chứng rà soát ngày 05/09 và log benchmark cũ tháng 8 đã được lưu riêng ngoài repository khi dọn ngày 06/09/2026. Các kết quả trên là ghi nhận lịch sử; cần chạy lại và lưu bằng chứng nghiệm thu hiện tại. Báo cáo DOCX tuần 1 là tài liệu lịch sử, có nội dung không còn khớp code .NET 10 hiện tại.
+Các kết quả trên chưa thay thế nghiệm thu GUI WPF và LAN trên Windows. Mã kiểm thử, báo cáo QA và kết quả benchmark được lưu riêng ngoài repository.
 
-Chạy benchmark chính thức trên Windows, tại gốc repository:
+Chạy benchmark chính thức trên Windows từ thư mục bộ test riêng đặt cạnh thư mục source:
 
 ```powershell
-dotnet build .\Code\UDM10.sln -c Release
+dotnet build ..\UDM10_UploadFiles\Code\UDM10.sln -c Release
 dotnet run --project .\Benchmark\Benchmark.csproj -c Release
 ```
 
-Kết quả ghi vào `Extra/Performance/`. Công cụ benchmark truyền từng kịch bản tuần tự, chưa thay thế stress test nhiều Client.
+Kết quả mặc định ghi ngoài repository tại `Documents/UDM10_Test_Results/Performance`; có thể chọn thư mục nộp riêng bằng `--output <đường-dẫn>`. Công cụ benchmark truyền từng kịch bản tuần tự, chưa thay thế stress test nhiều Client.
 
 Bộ nghiệm thu còn phải thực hiện và lưu kết quả thực tế:
 
@@ -155,30 +155,31 @@ Mỗi lần test phải ghi commit, OS/CPU/RAM/.NET, mạng, dữ liệu đầu 
 
 ```text
 Code/       Client WPF, Server TCP, Shared, UDM10.sln, README kỹ thuật
-Benchmark/  Công cụ benchmark TCP với Server ở tiến trình riêng
-DOCX/       Hiện có báo cáo QA tuần 1 và phạm vi chưa test; thiếu báo cáo cuối kỳ
-PPTX/       Hiện có README; chưa có slide .pptx
-Extra/      Ảnh bằng chứng, performance và thư mục sơ đồ kiến trúc
+DOCX/       Vị trí dành cho báo cáo Word cuối kỳ
+Extra/      Vị trí dành cho ảnh và bằng chứng cần thiết
+PPTX/       Vị trí dành cho slide thuyết trình
 README.md
 .gitignore
 ```
 
+Repository giữ đúng bốn thư mục bắt buộc. Mã kiểm thử, benchmark, log, dữ liệu demo và các bằng chứng cũ được đóng gói riêng; chỉ đưa báo cáo, slide và bằng chứng đã chốt vào đúng thư mục khi chuẩn bị gói Course cuối cùng.
+
 ## 7. Giới hạn và việc chưa hoàn thành
 
-Các lỗi còn mở trong báo cáo Word rà soát được chia sẻ riêng gồm: timeout chiều gửi; hash sau connect; config/file lỗi có thể thoát GUI; log lỗi chưa được cô lập và thiếu Disconnect; thiếu nút hàng loạt; Retry dùng endpoint cũ; tên dài; trường bắt buộc bị bỏ sót; thống kê thời gian phiên chưa đúng. Chưa xác nhận phục hồi `.part` sau khi tiến trình Server bị kill/mất điện; code hiện không quét dọn file cũ khi khởi động.
+Các phần còn chờ nghiệm thu là giao diện WPF trên Windows, demo LAN hoặc hai VM, và xử lý file `.part` còn sót sau khi tiến trình Server bị kill hoặc máy mất điện; code hiện chưa quét dọn file tạm cũ khi khởi động. Bộ kiểm thử scheduler và protocol được lưu riêng, không đưa vào source nộp đồ án.
 
-Chưa có bằng chứng Windows WPF/LAN, stress hai mức, báo cáo cuối kỳ đúng mẫu, slide và video. Không đánh dấu toàn dự án đã nghiệm thu chỉ dựa vào build hoặc bảng tuần.
+Chưa có bằng chứng Windows WPF/LAN, stress chính thức và video hoàn chỉnh. Báo cáo 12 trang và slide 10 trang đã có trong đúng thư mục; không đánh dấu toàn dự án đã nghiệm thu chỉ dựa vào build hoặc kiểm tra trên macOS.
 
 ## 8. Hồ sơ nộp và quy tắc Git
 
 - [ ] Kiểm tra hạn đóng và yêu cầu cụ thể trên hệ thống môn học.
-- [ ] Source code đầy đủ, cấu trúc `Code`, `DOCX`, `Extra`, `PPTX`, `README.md`, `.gitignore`.
-- [ ] Báo cáo **.docx tối đa 15 trang**, đúng mẫu thầy: lý do chọn đề tài; mục tiêu/phạm vi; lý thuyết; kiến trúc/protocol/message; thiết kế GUI; phân công; hướng dẫn chạy; kiểm thử; kết quả; khó khăn; kiến thức/kỹ năng học được; nội dung đã/chưa hoàn thành và hạn chế.
-- [ ] Slide **.pptx** phục vụ thuyết trình.
+- [ ] Source code đầy đủ và giữ đúng cấu trúc `Code`, `DOCX`, `Extra`, `PPTX`, `README.md`, `.gitignore`; không kèm output build, dữ liệu upload, log hoặc mã test.
+- [x] Báo cáo **.docx 12 trang** đã đặt trong `DOCX`; cần điền link video sau khi quay.
+- [x] Slide **.pptx 10 trang** đã đặt trong `PPTX`.
 - [ ] Video có âm thanh hoặc chú thích; mỗi thành viên trình bày phần việc và hiển thị khuôn mặt; link chia sẻ hoạt động trong README và báo cáo cuối kỳ.
 - [ ] GitHub có lịch sử tiến độ hàng tuần; mỗi người commit bằng tài khoản cá nhân, message mô tả thay đổi. Không có tiến độ 3 tuần liên tiếp vi phạm yêu cầu môn học. Không tạo commit giả/lùi ngày để bổ sung lịch sử.
 - [ ] Đóng gói đúng **CourseCode-GroupCode-ProjectCode.7z**. Chỉ dùng `304-Nhom11-UDM_10.7z` nếu Course xác nhận đúng các mã này.
-- [ ] Dọn bản sao dùng để đóng gói: `bin`, `obj`, `.vs`, dependency cache, output publish/build, `.DS_Store`, dữ liệu upload/demo sinh tự động không cần thiết. Giữ bằng chứng test cần thiết trong Extra; không đóng gói `.git`. `.gitignore` không tự loại các file này nếu nén trực tiếp thư mục làm việc.
+- [ ] Dọn bản sao dùng để đóng gói: `bin`, `obj`, `.vs`, dependency cache, output publish/build, `.DS_Store`, dữ liệu upload/demo sinh tự động và toàn bộ mã/kết quả test. Bộ test phải nộp bằng gói riêng; không đóng gói `.git`. `.gitignore` không tự loại các file này nếu nén trực tiếp thư mục làm việc.
 - [ ] Không đưa password/secret/private key vào source; dùng dữ liệu giả lập khi demo.
 
 Phân công chỉ được chuyển sang **hoàn thành** khi có commit/sản phẩm, test đạt và bằng chứng; người review kiểm tra chéo trước khi tích hợp.

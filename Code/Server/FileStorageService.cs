@@ -43,6 +43,7 @@ namespace UDM10.Server
             string expectedHash,
             Stream source,
             int receiveTimeoutMs,
+            Action<long>? onProgress = null,
             CancellationToken cancellationToken = default)
         {
             string finalPath = _nameResolver.GetAvailablePath(fileName);
@@ -56,6 +57,7 @@ namespace UDM10.Server
                     source,
                     expectedHash,
                     receiveTimeoutMs,
+                    onProgress,
                     cancellationToken);
 
                 _logger.LogInfo($"Nhận file '{fileName}' thành công, lưu tại '{savedPath}'.");

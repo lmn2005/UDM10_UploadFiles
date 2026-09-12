@@ -1,16 +1,12 @@
 # Dữ liệu bổ sung
 
-Thư mục này dùng để lưu dữ liệu bổ sung cho quá trình phát triển và kiểm thử:
+Thư mục này chỉ dùng cho tài nguyên bổ sung thuộc bộ source đồ án:
 
 - Ảnh chụp màn hình.
-- Log kiểm thử.
-- Dữ liệu test.
-- Kết quả stress test.
-- Kết quả performance test.
 - Sơ đồ kiến trúc.
 
 **Lưu ý:** Không lưu password, secret hoặc dữ liệu cá nhân thật trong thư mục này.
 
-Kết quả benchmark chính thức phải được tạo trên Windows bằng `Benchmark/Benchmark.csproj`. File có hậu tố `-non-windows` và các log benchmark FileStream cũ chỉ dùng để tham khảo, không phải bằng chứng nghiệm thu Client–Server TCP.
+Kết quả benchmark chính thức phải được tạo trên Windows bằng `Benchmark/Benchmark.csproj` trong bộ test riêng và lưu ngoài repository source bằng tham số `--output`. Nếu không truyền tham số, công cụ lưu vào `Documents/UDM10_Test_Results/Performance`. File có hậu tố `-non-windows` chỉ dùng để tham khảo, không phải bằng chứng nghiệm thu Client–Server TCP.
 
-Ngày 06/09/2026, log benchmark cũ và bộ rà soát đã được chuyển ra nơi lưu trữ riêng ngoài dự án; các thư mục TestLogs, TestData và Review đã được bỏ. Kết quả nghiệm thu mới vẫn phải có bằng chứng theo yêu cầu môn học. Khi lưu log nghiệm thu mới, bổ sung quy tắc .gitignore phù hợp để log đó được đưa vào Git.
+Log, dữ liệu test, báo cáo QA và kết quả benchmark được lưu trong bộ kiểm thử riêng, không commit vào source nộp đồ án.

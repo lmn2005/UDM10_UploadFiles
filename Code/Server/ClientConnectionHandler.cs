@@ -71,13 +71,25 @@ namespace UDM10.Server
                 var validation = MetadataValidator.Validate(request, maxAllowedSize);
                 if (!validation.IsValid)
                 {
-                    string currentRequestId = request?.RequestId ?? "N/A";
-                    await SendErrorAsync(
-                        stream,
-                        currentRequestId,
+                    requestId = string.IsNullOrWhiteSpace(request?.RequestId)
+                        ? "N/A"
+                        : request.RequestId;
+                    fileName = string.IsNullOrWhiteSpace(request?.FileName)
+                        ? "N/A"
+                        : request.FileName;
+
+                    _logger.LogUploadEvent(
+                        UploadLifecycleEvent.Error,
+                        requestId,
+                        clientEndPoint,
+                        fileName,
+                        bytesTransferred,
+                        validation.Message);
+
+                    await TrySendErrorAsync(
+                        requestId,
                         validation.ErrorCode,
                         validation.Message,
-                        serverCancellationToken,
                         errorSendTimeoutMs);
                     return;
                 }
@@ -117,6 +129,7 @@ namespace UDM10.Server
                     request.FileHash,
                     stream,
                     receiveTimeoutMs,
+                    transferred => bytesTransferred = transferred,
                     serverCancellationToken);
 
                 string savedFileName = Path.GetFileName(savedPath);
@@ -193,6 +206,22 @@ namespace UDM10.Server
                     requestId,
                     ErrorCode.ConnectionLost,
                     "Message bị cắt giữa chừng.",
+                    errorSendTimeoutMs);
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogUploadEvent(
+                    UploadLifecycleEvent.Error,
+                    requestId,
+                    clientEndPoint,
+                    fileName,
+                    bytesTransferred,
+                    $"Metadata không hợp lệ: {ex.Message}");
+
+                await TrySendErrorAsync(
+                    requestId,
+                    ErrorCode.InvalidMetadata,
+                    ex.Message,
                     errorSendTimeoutMs);
             }
             catch (IOException ex)
@@ -294,8 +323,7 @@ namespace UDM10.Server
                         responseRequestId,
                         errCode,
                         message,
-                        linkedCts.Token,
-                        timeoutMs);
+                        linkedCts.Token);
                 }
                 catch (Exception sendException)
                 {
@@ -310,8 +338,7 @@ namespace UDM10.Server
             string requestId,
             ErrorCode errorCode,
             string message,
-            CancellationToken cancellationToken,
-            int timeoutMs)
+            CancellationToken cancellationToken)
         {
             UploadResponse response = new()
             {

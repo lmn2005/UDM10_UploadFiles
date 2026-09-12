@@ -61,7 +61,15 @@ namespace UDM10.Server
 
             int allowedNameLength =
                 MaxSafeFileNameLength - suffixText.Length - ext.Length;
-            allowedNameLength = Math.Max(1, allowedNameLength);
+
+            if (allowedNameLength < 1)
+            {
+                throw new StorageException(
+                    "Phần mở rộng của file quá dài để Server tạo tên " +
+                    "an toàn mà vẫn giữ nguyên phần mở rộng.",
+                    new PathTooLongException(
+                        "Không còn chỗ cho phần tên file trước phần mở rộng."));
+            }
 
             string truncatedName = name.Length > allowedNameLength
                 ? name.Substring(0, allowedNameLength)

@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Security;
 using System.Windows;
 using System.Windows.Threading;
+using System.Threading;
 using UDM10.Client.Services;
 
 namespace UDM10.Client
@@ -20,7 +21,7 @@ namespace UDM10.Client
         private readonly ClientSettings _settings;
         private readonly IUploadManager _uploadManager;
         private readonly DispatcherTimer _statisticsTimer;
-        private bool _disposed;
+        private int _disposeState;
 
         private ConnectionStatus _connectionStatus = ConnectionStatus.Disconnected;
         public ConnectionStatus ConnectionStatus
@@ -61,22 +62,71 @@ namespace UDM10.Client
         }
         public void AddFilesFromDialog()
         {
-            var paths = _fileSelectionService.PickFilesFromDialog();
-            if (paths != null) AddFiles(paths);
+            try
+            {
+                var paths = _fileSelectionService.PickFilesFromDialog();
+                if (paths != null) AddFiles(paths);
+            }
+            catch (Exception ex) when (IsFileSelectionException(ex))
+            {
+                MessageBox.Show(
+                    $"Không thể mở hoặc đọc danh sách file: {ex.Message}",
+                    "Lỗi chọn file",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
         }
 
         public void AddFilesFromDrop(IDataObject data)
         {
-            var allPaths = (string[])data.GetData(DataFormats.FileDrop);
-            var validPaths = _fileSelectionService.GetDroppedFiles(data);
-
-            if (validPaths != null)
+            string[] allPaths;
+            try
             {
-                AddFiles(validPaths);
+                allPaths = _fileSelectionService.GetDroppedPaths(data);
+            }
+            catch (Exception ex) when (IsFileSelectionException(ex))
+            {
+                MessageBox.Show(
+                    $"Không thể đọc dữ liệu kéo-thả: {ex.Message}",
+                    "Lỗi kéo-thả file",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
 
-                int skippedFolders = allPaths.Length - validPaths.Length;
+            string[] validPaths = allPaths
+                .Where(File.Exists)
+                .ToArray();
+
+            AddFiles(validPaths);
+
+            int skippedFolders = allPaths.Count(Directory.Exists);
+            string[] unavailablePaths = allPaths
+                .Where(path => !File.Exists(path) && !Directory.Exists(path))
+                .ToArray();
+
+            if (skippedFolders > 0 || unavailablePaths.Length > 0)
+            {
+                var messages = new List<string>();
                 if (skippedFolders > 0)
-                    MessageBox.Show($"{skippedFolders} thư mục đã bị bỏ qua (chỉ hỗ trợ file).");
+                {
+                    messages.Add(
+                        $"{skippedFolders} thư mục đã bị bỏ qua " +
+                        "(chỉ hỗ trợ file).");
+                }
+
+                if (unavailablePaths.Length > 0)
+                {
+                    messages.Add(
+                        $"{unavailablePaths.Length} đường dẫn không còn tồn tại " +
+                        "hoặc không thể truy cập.");
+                }
+
+                MessageBox.Show(
+                    string.Join(Environment.NewLine, messages),
+                    "Kết quả kéo-thả",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
             }
         }
 
@@ -248,17 +298,30 @@ namespace UDM10.Client
 
         public async ValueTask DisposeAsync()
         {
-            if (_disposed) return;
-            _disposed = true;
+            if (Interlocked.Exchange(ref _disposeState, 1) != 0) return;
 
             _statisticsTimer.Stop();
-            await _uploadManager.DisposeAsync();
-
-            foreach (UploadItemViewModel item in FileList)
+            try
             {
-                item.Dispose();
+                await _uploadManager.DisposeAsync();
+            }
+            finally
+            {
+                foreach (UploadItemViewModel item in FileList)
+                {
+                    item.Dispose();
+                }
             }
         }
+
+        private static bool IsFileSelectionException(Exception exception)
+            => exception is FileNotFoundException
+                or DirectoryNotFoundException
+                or UnauthorizedAccessException
+                or IOException
+                or ArgumentException
+                or PathTooLongException
+                or SecurityException;
 
         private static bool IsSamePath(string firstPath, string secondPath)
         {

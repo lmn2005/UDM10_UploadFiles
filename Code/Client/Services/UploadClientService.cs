@@ -56,6 +56,10 @@ namespace UDM10.Client.Services
                             "Đang tính SHA-256..."
                     });
 
+                fileInfo.Refresh();
+                long sizeBeforeHash = fileInfo.Length;
+                DateTime lastWriteBeforeHash = fileInfo.LastWriteTimeUtc;
+
                 // Tính hash trước khi mở kết nối TCP: nếu file lớn khiến việc đọc/hash
                 // chậm, Server sẽ không bắt đầu đếm timeout chờ metadata trong lúc đó.
                 string fileHash =
@@ -67,6 +71,14 @@ namespace UDM10.Client.Services
                 fileInfo.Refresh();
                 long hashedFileSize = fileInfo.Length;
                 DateTime hashedLastWriteUtc = fileInfo.LastWriteTimeUtc;
+
+                if (hashedFileSize != sizeBeforeHash ||
+                    hashedLastWriteUtc != lastWriteBeforeHash)
+                {
+                    return UploadResult.Fail(
+                        "File đã thay đổi trong lúc tính SHA-256, " +
+                        "hủy upload để tránh gửi metadata sai.");
+                }
 
                 progress?.Report(
                     new UploadProgress
@@ -296,6 +308,8 @@ namespace UDM10.Client.Services
                             });
                     },
                     sendTimeoutMs: sendTimeoutMs,
+                    expectedFileSize: hashedFileSize,
+                    expectedLastWriteUtc: hashedLastWriteUtc,
                     cancellationToken: cancellationToken);
 
                
