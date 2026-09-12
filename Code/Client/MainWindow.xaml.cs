@@ -1,3 +1,5 @@
+using System;
+using System.ComponentModel;
 using System.Net;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,6 +10,9 @@ namespace UDM10.Client
     public partial class MainWindow : Window
     {
         private readonly MainViewModel _viewModel = new();
+
+        private bool _cleanupDone;
+        private bool _cleanupInProgress;
 
         public MainWindow()
         {
@@ -48,6 +53,8 @@ namespace UDM10.Client
 
         private void BtnRetry_Click(object sender, RoutedEventArgs e)
         {
+            if (!TryApplyServerEndpoint()) return;
+
             if (sender is Button btn && btn.Tag is UploadItemViewModel item)
                 _viewModel.RetryFile(item);
         }
@@ -62,6 +69,8 @@ namespace UDM10.Client
 
         private void BtnRetryAll_Click(object sender, RoutedEventArgs e)
         {
+            if (!TryApplyServerEndpoint()) return;
+
             int count = _viewModel.RetryAllFailedFiles();
             if (count == 0)
                 MessageBox.Show("Không có file nào bị lỗi để thử lại.", "Thông báo",
@@ -100,9 +109,25 @@ namespace UDM10.Client
             return true;
         }
 
-        private async void Window_Closed(object? sender, EventArgs e)
+        private async void MainWindow_Closing(object? sender, CancelEventArgs e)
         {
-            await _viewModel.DisposeAsync();
+            if (_cleanupDone) return;
+
+            e.Cancel = true;
+            if (_cleanupInProgress) return;
+
+            _cleanupInProgress = true;
+            try
+            {
+                await _viewModel.DisposeAsync();
+            }
+            finally
+            {
+                _cleanupDone = true;
+                _cleanupInProgress = false;
+            }
+
+            Close();
         }
     }
 }
