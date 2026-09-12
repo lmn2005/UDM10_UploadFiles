@@ -1,9 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Security;
 using System.Windows;
 using System.Windows.Threading;
 using UDM10.Client.Services;
@@ -18,6 +20,7 @@ namespace UDM10.Client
         private readonly ClientSettings _settings;
         private readonly IUploadManager _uploadManager;
         private readonly DispatcherTimer _statisticsTimer;
+        private bool _disposed;
 
         private ConnectionStatus _connectionStatus = ConnectionStatus.Disconnected;
         public ConnectionStatus ConnectionStatus
@@ -79,15 +82,42 @@ namespace UDM10.Client
 
         private void AddFiles(string[] paths)
         {
+            var failedFiles = new List<string>();
+
             foreach (var path in paths)
             {
                 // Ngăn thêm cùng một file qua chọn file nhiều lần hoặc kéo-thả lại.
                 if (FileList.Any(f => IsSamePath(f.FilePath, path))) continue;
 
-                var item = new UploadItemViewModel(path);
+                UploadItemViewModel item;
+                try
+                {
+                    item = new UploadItemViewModel(path);
+                }
+                catch (Exception ex) when (ex is FileNotFoundException
+                                             or DirectoryNotFoundException
+                                             or UnauthorizedAccessException
+                                             or IOException
+                                             or ArgumentException
+                                             or PathTooLongException
+                                             or SecurityException)
+                {
+                    failedFiles.Add($"{Path.GetFileName(path)}: {ex.Message}");
+                    continue;
+                }
+
                 FileList.Add(item);
                 Statistics.RegisterFile(item.FilePath, item.FileSizeBytes);
                 StartUpload(item);
+            }
+
+            if (failedFiles.Count > 0)
+            {
+                MessageBox.Show(
+                    "Không thể thêm các file sau:\n" + string.Join("\n", failedFiles),
+                    "Lỗi chọn file",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
             }
 
             NotifyActionStateChanged();
@@ -218,6 +248,9 @@ namespace UDM10.Client
 
         public async ValueTask DisposeAsync()
         {
+            if (_disposed) return;
+            _disposed = true;
+
             _statisticsTimer.Stop();
             await _uploadManager.DisposeAsync();
 
