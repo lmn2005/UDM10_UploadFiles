@@ -1,0 +1,79 @@
+<Window x:Class="UDM10.Client.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="UDM10 Upload Client RC" Height="620" Width="1100"
+        Closing="MainWindow_Closing">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,10">
+            <Label Content="Server IP:"/>
+            <TextBox x:Name="TxtServerIp" Text="127.0.0.1" Width="120"/>
+            <Label Content="Port:" Margin="10,0,0,0"/>
+            <TextBox x:Name="TxtServerPort" Text="9000" Width="60"/>
+            <Label Content="Trạng thái kết nối:" Margin="20,0,0,0"/>
+            <TextBlock x:Name="TxtConnectionStatus" Text="{Binding ConnectionStatus}"
+                       VerticalAlignment="Center" FontWeight="Bold" Margin="5,0,0,0"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1"
+                Height="80" AllowDrop="True" Background="White"
+                Drop="DropArea_Drop" DragEnter="DropArea_DragEnter">
+            <TextBlock Text="Kéo-thả file vào đây, hoặc bấm nút bên dưới"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+        <Button Grid.Row="1" Content="Chọn file..." Width="100" Height="30"
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Click="BtnChooseFile_Click"/>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="0,10,0,0">
+            <Button x:Name="BtnCancelAll" Content="Hủy tất cả đang tải" Padding="8,4"
+                    IsEnabled="{Binding CanCancelAll}" Click="BtnCancelAll_Click"/>
+            <Button x:Name="BtnRetryAll" Content="Thử lại tất cả lỗi" Padding="8,4"
+                    Margin="10,0,0,0" IsEnabled="{Binding CanRetryAllFailed}" Click="BtnRetryAll_Click"/>
+            <Button x:Name="BtnClearCompleted" Content="Xóa các mục hoàn tất" Padding="8,4"
+                    Margin="10,0,0,0" IsEnabled="{Binding HasCompletedFiles}" Click="BtnClearCompleted_Click"/>
+        </StackPanel>
+
+        <Border Grid.Row="3" Margin="0,10,0,0" Padding="8"
+                BorderBrush="#B0B0B0" BorderThickness="1" Background="#F5F5F5">
+            <TextBlock Text="{Binding Statistics.SummaryText}" FontWeight="SemiBold"/>
+        </Border>
+
+        <ListView x:Name="FileListView" Grid.Row="4" Margin="0,10,0,0">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="Tên file" DisplayMemberBinding="{Binding FileNameDisplay}" Width="120"/>
+                    <GridViewColumn Header="Tên đã lưu" DisplayMemberBinding="{Binding SavedFileNameDisplay}" Width="110"/>
+                    <GridViewColumn Header="Kích thước" DisplayMemberBinding="{Binding FileSizeText}" Width="75"/>
+                    <GridViewColumn Header="Trạng thái" DisplayMemberBinding="{Binding StatusText}" Width="85"/>
+                    <GridViewColumn Header="Tiến độ (%)" DisplayMemberBinding="{Binding PercentComplete}" Width="80"/>
+                    <GridViewColumn Header="Tốc độ" DisplayMemberBinding="{Binding SpeedText}" Width="90"/>
+                    <GridViewColumn Header="Thông báo" DisplayMemberBinding="{Binding Message}" Width="130"/>
+                    <GridViewColumn Header="Cancel" Width="65">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="Cancel" IsEnabled="{Binding CanCancel}"
+                                        Click="BtnCancel_Click" Tag="{Binding}"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="Retry" Width="65">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="Retry" IsEnabled="{Binding CanRetry}"
+                                        Click="BtnRetry_Click" Tag="{Binding}"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                </GridView>
+            </ListView.View>
+        </ListView>
+    </Grid>
+</Window>

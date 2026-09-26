@@ -1,7 +1,8 @@
 # Dữ liệu bổ sung
 
-Thư mục này chỉ dùng cho tài nguyên bổ sung thuộc bộ source đồ án:
+Thư mục này chứa tài liệu kiểm thử và tài nguyên bổ sung thuộc bộ source đồ án:
 
+- File Excel test case được lập theo chức năng và phân công của nhóm.
 - Ảnh chụp màn hình.
 - Sơ đồ kiến trúc.
 

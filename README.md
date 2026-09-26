@@ -3,10 +3,25 @@
 Đồ án môn **Lập trình mạng**: ứng dụng desktop C# WPF cho phép chọn/kéo thả nhiều file và upload tới TCP Server. Client và Server chạy ở **hai tiến trình riêng**, giao tiếp qua mạng thật. Đây không phải Web App.
 
 - Mã đề tài: **UDM_10**; tên solution/assembly trong code: `UDM10`.
-- Mã lớp: **304**; nhóm: **11** (khôi phục từ README trong lịch sử Git; cần đối chiếu CourseCode/GroupCode chính thức trước khi nộp).
+- Nhóm có **6 thành viên**, trong giới hạn 4–6 của yêu cầu chung. Mã lớp/nhóm **304/11** được khôi phục từ lịch sử README; cần đối chiếu CourseCode/GroupCode chính thức trước khi đặt tên gói nộp. Số nhóm cùng đăng ký đề tài cần kiểm tra trên Course.
 - Repository: [lmn2005/UDM10_UploadFiles](https://github.com/lmn2005/UDM10_UploadFiles).
 - Video báo cáo/demo: **CHƯA CÓ LINK** — bổ sung link chia sẻ Google Drive/YouTube tại đây và trong báo cáo cuối kỳ.
-- Trạng thái tích hợp 12/09/2026: build Release sạch, bộ test riêng đạt 11/11; **còn phải quay GUI/LAN và chạy nghiệm thu chính thức trên Windows**. Báo cáo, slide và bộ test được lưu ngoài repository source.
+- Trạng thái tích hợp 12/09/2026: build Release sạch, bộ test riêng đạt 11/11; **còn phải quay GUI/LAN và chạy nghiệm thu chính thức trên Windows**. Báo cáo và bộ test được lưu trong hồ sơ dự án.
+
+## Tóm tắt đối chiếu yêu cầu giảng viên
+
+| Yêu cầu | Hiện trạng và việc còn lại |
+| --- | --- |
+| Ứng dụng desktop, không phải Web App; Client–Server trao đổi qua mạng thật | Đã triển khai bằng C# WPF và TCP Socket; Client và Server chạy thành hai tiến trình riêng. Hướng dẫn chạy có trong mục 4. |
+| GUI phản hồi, thể hiện trạng thái và không dừng vì lỗi chưa xử lý | Code có trạng thái từng file, tiến độ, hàng đợi và thao tác bất đồng bộ. Cần chạy demo WPF trên Windows để xác nhận GUI không treo và không có lỗi chưa xử lý. |
+| Kiến trúc, protocol, cấu hình mạng, validation | Mô tả ở mục 3; protocol V3, TCP 9000, IP/port cấu hình được; Server kiểm tra metadata và trả `Error` khi request không hợp lệ. |
+| Ngắt kết nối, timeout, giải phóng tài nguyên và file chưa hoàn tất | Có timeout, file tạm và kiểm tra kích thước/SHA-256 trước khi công nhận upload. Cần nghiệm thu các trường hợp ngắt đột ngột; file `.part` còn sót sau khi Server bị kill hoặc mất điện chưa được tự dọn khi khởi động lại. |
+| Bảo mật và log | Không có chức năng điều khiển/truy cập máy từ xa nên yêu cầu xin phép tại máy đích không áp dụng. Không đưa mật khẩu, secret hoặc private key vào source; log Server ghi sự kiện kết nối/lỗi/ngắt kết nối, không chủ ý ghi dữ liệu bí mật. |
+| Functional, invalid-data, disconnect, stress và performance test | Bộ test riêng đạt 11/11 và đã có benchmark TCP loopback ở hai kích thước file; đây chưa phải stress/performance nghiệm thu chính thức nhiều Client. Các ca GUI, invalid data, disconnect và hai mức tải chính thức còn phải chạy, ghi cấu hình máy và lưu bằng chứng như mục 5. |
+| Báo cáo, phân công, demo và video | Báo cáo trong `DOCX` có 14 trang, nằm trong giới hạn 15 trang và có các mục bắt buộc; PDF phân công 5 tuần nằm cùng thư mục. README và báo cáo chưa có link video; cần bổ sung sau khi quay demo có âm thanh/chú thích. |
+| Repository và tiến độ | Có repository riêng, `.gitignore`, README và các thư mục source/tài liệu. Cần kiểm tra lại lịch sử commit hằng tuần và tài khoản commit cá nhân trước khi nộp. |
+
+Theo xác nhận mới nhất của nhóm, giảng viên không yêu cầu slide cho đợt nộp này; vì vậy thư mục `PPTX` đã được bỏ. Nếu yêu cầu này thay đổi, cần bổ sung lại slide và thư mục tương ứng.
 
 ## 1. Thành viên và phân công
 
@@ -157,28 +172,26 @@ Mỗi lần test phải ghi commit, OS/CPU/RAM/.NET, mạng, dữ liệu đầu 
 Code/       Client WPF, Server TCP, Shared, UDM10.sln, README kỹ thuật
 DOCX/       Vị trí dành cho báo cáo Word cuối kỳ
 Extra/      Vị trí dành cho ảnh và bằng chứng cần thiết
-PPTX/       Vị trí dành cho slide thuyết trình
 README.md
 .gitignore
 ```
 
-Repository giữ đúng bốn thư mục bắt buộc. Mã kiểm thử, benchmark, log, dữ liệu demo và các bằng chứng cũ được đóng gói riêng; chỉ đưa báo cáo, slide và bằng chứng đã chốt vào đúng thư mục khi chuẩn bị gói Course cuối cùng.
+Theo hướng dẫn cập nhật của giảng viên, gói nộp này không cần slide thuyết trình nên không kèm thư mục `PPTX`. Mã kiểm thử, benchmark, log, dữ liệu demo và các bằng chứng cũ được đóng gói riêng; chỉ đưa báo cáo và bằng chứng cần thiết vào gói Course cuối cùng.
 
 ## 7. Giới hạn và việc chưa hoàn thành
 
 Các phần còn chờ nghiệm thu là giao diện WPF trên Windows, demo LAN hoặc hai VM, và xử lý file `.part` còn sót sau khi tiến trình Server bị kill hoặc máy mất điện; code hiện chưa quét dọn file tạm cũ khi khởi động. Bộ kiểm thử scheduler và protocol được lưu riêng, không đưa vào source nộp đồ án.
 
-Chưa có bằng chứng Windows WPF/LAN, stress chính thức và video hoàn chỉnh. Báo cáo 12 trang và slide 10 trang đã có trong đúng thư mục; không đánh dấu toàn dự án đã nghiệm thu chỉ dựa vào build hoặc kiểm tra trên macOS.
+Chưa có bằng chứng Windows WPF/LAN, stress chính thức và video hoàn chỉnh. Báo cáo 14 trang đã có trong `DOCX`; theo hướng dẫn cập nhật của giảng viên, không yêu cầu slide cho gói nộp này. Không đánh dấu toàn dự án đã nghiệm thu chỉ dựa vào build hoặc kiểm tra trên macOS.
 
 ## 8. Hồ sơ nộp và quy tắc Git
 
 - [ ] Kiểm tra hạn đóng và yêu cầu cụ thể trên hệ thống môn học.
-- [ ] Source code đầy đủ và giữ đúng cấu trúc `Code`, `DOCX`, `Extra`, `PPTX`, `README.md`, `.gitignore`; không kèm output build, dữ liệu upload, log hoặc mã test.
-- [x] Báo cáo **.docx 12 trang** đã đặt trong `DOCX`; cần điền link video sau khi quay.
-- [x] Slide **.pptx 10 trang** đã đặt trong `PPTX`.
+- [ ] Source code đầy đủ và giữ cấu trúc `Code`, `DOCX`, `Extra`, `README.md`, `.gitignore`; không kèm output build, dữ liệu upload, log hoặc mã test.
+- [x] Báo cáo **.docx 14 trang** đã đặt trong `DOCX`; cần điền link video sau khi quay.
 - [ ] Video có âm thanh hoặc chú thích; mỗi thành viên trình bày phần việc và hiển thị khuôn mặt; link chia sẻ hoạt động trong README và báo cáo cuối kỳ.
 - [ ] GitHub có lịch sử tiến độ hàng tuần; mỗi người commit bằng tài khoản cá nhân, message mô tả thay đổi. Không có tiến độ 3 tuần liên tiếp vi phạm yêu cầu môn học. Không tạo commit giả/lùi ngày để bổ sung lịch sử.
-- [ ] Đóng gói đúng **CourseCode-GroupCode-ProjectCode.7z**. Chỉ dùng `304-Nhom11-UDM_10.7z` nếu Course xác nhận đúng các mã này.
+- [ ] Quy định được gửi yêu cầu tên gói **CourseCode-GroupCode-ProjectCode.7z**. Mã `304`, nhóm `11` trong lịch sử README chưa được xác nhận là mã chính thức; kiểm tra trên Course trước khi đặt tên. Bản ZIP hiện tại được tạo theo yêu cầu của nhóm, nhưng cần xác nhận Course chấp nhận `.zip` thay cho `.7z` trước khi tải lên.
 - [ ] Dọn bản sao dùng để đóng gói: `bin`, `obj`, `.vs`, dependency cache, output publish/build, `.DS_Store`, dữ liệu upload/demo sinh tự động và toàn bộ mã/kết quả test. Bộ test phải nộp bằng gói riêng; không đóng gói `.git`. `.gitignore` không tự loại các file này nếu nén trực tiếp thư mục làm việc.
 - [ ] Không đưa password/secret/private key vào source; dùng dữ liệu giả lập khi demo.
 
