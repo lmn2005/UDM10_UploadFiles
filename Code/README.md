@@ -176,7 +176,7 @@ dotnet publish .\Server\UDM10.Server.csproj -c Release -r win-x64 --self-contain
 dotnet publish .\Client\UDM10.Client.csproj -c Release -r win-x64 --self-contained false -o ..\publish\Client
 ```
 
-Hai thư mục publish dùng chung assembly Protocol v3. Thư mục `publish` được đặt ngoài `Code` để không đưa artefact build vào mã nguồn.
+Hai thư mục publish dùng chung assembly Protocol v3. Đặt thư mục `publish` ngoài repository, không commit artefact build.
 
 ## 5. Chạy Client–Server trên hai máy hoặc hai Windows VM
 
@@ -195,26 +195,11 @@ Hai thư mục publish dùng chung assembly Protocol v3. Thư mục `publish` đ
 
 `127.0.0.1` chỉ dùng khi Client và Server chạy trên cùng một máy/VM.
 
-## 6. Benchmark TCP trên Windows
+## 6. Kiểm thử hiệu năng
 
-Benchmark nằm trong bộ test nộp riêng, chạy một tiến trình Client benchmark và một tiến trình `UDM10.Server` riêng qua TCP loopback. Hai mức tải mặc định là 32 MiB/chunk 64 KiB và 512 MiB/chunk 256 KiB. Công cụ đo throughput TCP, CPU và peak working set riêng của hai tiến trình, đối chiếu size/SHA-256, đồng thời kiểm tra upload thiếu byte bị từ chối và `.part` được dọn.
+Không có project `Benchmark` trong repository nộp. Stress test và performance test (ít nhất hai mức tải) thực hiện thủ công trên Windows, ghi kết quả và bằng chứng vào `Extra/`. File test case: `Extra/Test_Case_LTM_Project_5_Tuan.xlsx`.
 
-Mở PowerShell tại thư mục gốc repository trên Windows:
-
-```powershell
-dotnet build .\Code\UDM10.sln -c Release
-dotnet run --project .\Benchmark\Benchmark.csproj -c Release -- --output C:\UDM10_Test_Results\Performance
-```
-
-Kết quả được lưu ngoài repository; mặc định tại thư mục Documents của người chạy:
-
-- `Documents\UDM10_Test_Results\Performance\upload-performance-summary.json`
-- `Documents\UDM10_Test_Results\Performance\upload-performance-summary.md`
-- `Documents\UDM10_Test_Results\Performance\upload-performance-server.log`
-
-Benchmark từ chối chạy chính thức ngoài Windows. Tham số `--allow-non-windows` chỉ dành cho kiểm tra kỹ thuật và tạo file có hậu tố `-non-windows`; tuyệt đối không dùng các file này làm bằng chứng nghiệm thu.
-
-Benchmark loopback xác nhận hiệu năng TCP của code trên một máy. Bài demo Client–Server trên hai máy/VM ở mục 5 vẫn phải thực hiện riêng để xác nhận firewall, IP LAN và hoạt động thực tế của giao diện WPF.
+Bài demo Client–Server trên hai máy hoặc hai VM ở mục 5 vẫn phải làm riêng để xác nhận firewall, IP LAN và GUI WPF.
 
 ## 7. Phạm vi đã triển khai và phần chờ nghiệm thu
 
@@ -222,4 +207,4 @@ Code đã có scheduler tối đa 3 upload, trạng thái và thống kê từng
 
 Việc demo hai máy, chụp bằng chứng, chạy lại benchmark TCP và xác nhận Release Candidate vẫn là bước nghiệm thu thủ công trên Windows; README không thay thế các bằng chứng đó.
 
-Các phần còn phải nghiệm thu riêng gồm giao diện WPF trên Windows, chạy Client–Server qua hai máy hoặc hai VM, và khả năng xử lý file `.part` còn sót sau khi tiến trình Server bị kill hoặc máy mất điện. Bộ kiểm thử scheduler và protocol được lưu ngoài repository nộp đồ án.
+Các phần còn phải nghiệm thu riêng gồm giao diện WPF trên Windows, chạy Client–Server qua hai máy hoặc hai VM, và khả năng xử lý file `.part` còn sót sau khi tiến trình Server bị kill hoặc máy mất điện. File test case nằm trong `Extra/`.

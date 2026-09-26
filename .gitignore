@@ -11,6 +11,21 @@ obj/
 *.suo
 !**/appsettings.json
 
+# Local OS and generated working files
+.DS_Store
+/tmp/
+/outputs/
+
+# Submission archives and unpacked copies must stay outside the repository
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+~$*
+Uploads/
+/publish/
+
 # User-specific files
 *.rsuser
 *.suo
